@@ -104,23 +104,39 @@ class HexCellWidget(QWidget):
         painter.setBrush(QBrush(bg_color))
         painter.drawPolygon(poly)
 
-        # Desenha o nome do servidor (sempre em preto e em negrito)
-        font_name = QFont("Open Sans", 10, QFont.Bold)
+        # ---------------------------
+        # Desenha o nome do servidor
+        # ---------------------------
+        # Tamanho da fonte do nome (ajuste o valor 9 para diminuir ou aumentar)
+        font_name = QFont("Open Sans", 8, QFont.Bold)
         painter.setFont(font_name)
         fm = QFontMetrics(font_name)
-        max_text_width = int(side * 1.8 + 4)  # Permite truncamento com 4 caracteres a mais
-        display_name = self.server_name
-        if fm.width(display_name) > max_text_width:
-            while fm.width(display_name + "...") > max_text_width and display_name:
-                display_name = display_name[:-1]
-            display_name += "..."
-        rect_name = QRect(0, 0, w, int(h * 0.45))
-        # Aqui o nome é sempre desenhado em preto.
+        
+        # Define o número máximo de caracteres para o nome (por padrão 14)
+        max_server_chars = 13  # Altere este valor para controlar quantos caracteres serão exibidos
+        
+        # Se o nome for maior que max_server_chars, trunca
+        if len(self.server_name) > max_server_chars:
+            display_name = self.server_name[:max_server_chars] + "..."
+        else:
+            display_name = self.server_name
+
+        # Se preferir usar a abordagem baseada em pixels, pode substituir pelo código abaixo:
+        # max_text_width = fm.averageCharWidth() * 14
+        # display_name = self.server_name
+        # if fm.width(display_name) > max_text_width:
+        #     display_name = self.server_name[:14] + "..."
+        
+        # Abaixa a área do nome para 35% da altura (ajuste se desejar)
+        rect_name = QRect(0, 0, w, int(h * 0.65))
         painter.setPen(QColor("black"))
         painter.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, display_name)
 
-        # Define a cor do texto para o ms conforme a latência, mantendo a condição:
-        # De 0 a 120 ms: branco; de 120 a 800 ms: preto; acima de 800 ms: branco.
+        # -------------------------------
+        # Desenha a latência em ms
+        # -------------------------------
+        # Define a cor do texto para a latência conforme a condição:
+        # 0 a 120 ms: branco; 120 a 800 ms: preto; acima de 800 ms: branco.
         if self.latency_ms < 0:
             ms_text_color = QColor("white")
         elif self.latency_ms < 120:
@@ -130,13 +146,13 @@ class HexCellWidget(QWidget):
         else:
             ms_text_color = QColor("white")
 
-        # Desenha a latência em ms com fonte maior e negrito, usando a cor determinada.
-        font_latency = QFont("Open Sans", 14, QFont.Bold)
+        # Ajuste aqui o tamanho do texto da latência (valor 16)
+        font_latency = QFont("Open Sans", 16, QFont.Bold)
         painter.setFont(font_latency)
         painter.setPen(ms_text_color)
         # Se estiver offline (latency_ms negativa), exibe 0 ms.
         ms_text = f"{int(self.latency_ms) if self.latency_ms >= 0 else 0} ms"
-        # Para ajustar a posição vertical do ms, altere o valor do Y no retângulo abaixo.
+        # Ajuste a posição vertical do texto de latência alterando o retângulo (aqui começa em 28% da altura)
         rect_ms = QRect(0, int(h * 0.28), w, int(h * 0.55))
         painter.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, ms_text)
 
@@ -201,7 +217,7 @@ class HiveView(QWidget):
         super().__init__(parent)
         self.servers_info = servers_info  # Lista de tuplas (server_name, latência_ms)
         self.cells = []
-        self.layout = HoneycombLayout(cell_size=100, spacing=5)
+        self.layout = HoneycombLayout(cell_size=128, spacing=5)
         self.setLayout(self.layout)
         self.buildUI()
 
@@ -231,7 +247,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     sample_data = [
-        ("S1", 20),
+        ("SER-MTZ-VEN19", 20),
         ("S2", 55),
         ("S3", 120),
         ("ServidorDemorado", 300),
