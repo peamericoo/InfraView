@@ -2,6 +2,10 @@ import sys
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QFont, QFontDatabase
 from gui import MainWindow
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(__file__), 'sidebar'))
 
 def main():
     app = QApplication(sys.argv)
