@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QHBoxLayout, QInputDialog, QMessageBox, QPlainTextEdit, QLabel,
+    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QHBoxLayout,
     QGroupBox, QAbstractItemView, QSizePolicy
 )
 from PyQt5.QtMultimedia import QSound
@@ -22,7 +22,6 @@ from monitor import MonitorThread
 from config import load_servers, save_servers
 from utils import validate_ip
 from navigation_bar import NavigationBar
-  # Importa o widget de Menu criado (antigo sidebar)
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 OFFLINE_SOUND_PATH = "notification-2-269292.wav"
@@ -50,7 +49,7 @@ class MainWindow(QMainWindow):
         self.monitor_paused = True
         self.monitor_thread = None
 
-        # Timers e lógica já existente
+        # Timers e demais lógicas já existentes
         self.blink_timer = QTimer(self)
         self.blink_timer.setInterval(500)
         self.blink_timer.timeout.connect(self.toggleBlink)
@@ -69,49 +68,28 @@ class MainWindow(QMainWindow):
         # Monitor não inicia automaticamente
 
     def initUI(self):
-        # Cria o widget central e layout horizontal
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # -------------------------------
-        # Inserção direta da NavigationBar (sem container adicional)
-        # -------------------------------
+        # Inserção da NavigationBar (com o novo botão de pausar/despausar)
         self.nav_bar = NavigationBar()
         self.nav_bar.addServerClicked.connect(self.add_server)
-        main_layout.addWidget(self.nav_bar, 0)  # A NavigationBar controla sua própria largura animada
+        main_layout.addWidget(self.nav_bar, 0)
 
-        # -------------------------------
-        # Área principal (conteúdo da aplicação)
-        # -------------------------------
+        # Área principal – ajustada para que o grupo "Servidores Monitorados"
+        # fique alinhado com o widget da "Visão Colmeia"
         self.main_content = QWidget()
         main_content_layout = QHBoxLayout(self.main_content)
         main_content_layout.setContentsMargins(10, 10, 10, 10)
         main_content_layout.setSpacing(10)
 
-        # Área esquerda interna (ex: tabela, botões de remover/pausar)
+        # Widget esquerdo: contém os grupos de "Servidores Monitorados" e "Registro de Falhas Offline"
         left_widget = QWidget()
         left_vbox = QVBoxLayout(left_widget)
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(10)
-        btn_layout = QHBoxLayout()
-        self.btn_remove = QPushButton("– Remover Servidor")
-        self.btn_pause = QPushButton("Despausar Pings")
-        self.btn_pause.setStyleSheet("""
-            QPushButton {
-                border: 1px solid #444;
-                border-radius: 5px;
-                padding: 5px 10px;
-                background-color: lightcoral;
-            }
-            QPushButton:hover {
-                background-color: #f4a8a8;
-            }
-        """)
-        btn_layout.addWidget(self.btn_remove)
-        btn_layout.addWidget(self.btn_pause)
-        left_vbox.addLayout(btn_layout)
         group_servers = QGroupBox("Servidores Monitorados")
         group_servers_layout = QVBoxLayout(group_servers)
         self.table = QTableWidget()
@@ -132,7 +110,7 @@ class MainWindow(QMainWindow):
         left_vbox.addWidget(group_falhas)
         main_content_layout.addWidget(left_widget, 1)
 
-        # Área direita (HiveView)
+        # Widget direito: HiveView (Visão Colmeia)
         self.group_hive = QGroupBox("Visão Colmeia")
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
@@ -143,10 +121,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self.main_content, 1)
 
-        # Conectar ações dos botões e células da tabela
         self.table.cellDoubleClicked.connect(self.open_dashboard)
-        self.btn_remove.clicked.connect(self.remove_server)
-        self.btn_pause.clicked.connect(self.toggle_pause)
         self.populate_table()
 
     def populate_table(self):
@@ -319,64 +294,13 @@ class MainWindow(QMainWindow):
                     self.monitor_thread.servers = list(self.servers.keys())
                 self.rebuild_hive_view()
 
-    def remove_server(self):
-        ip, ok = QInputDialog.getText(self, "Remover Servidor", "Digite o IP do servidor a remover:")
-        if ok and ip in self.servers:
-            del self.servers[ip]
-            if ip in self.offline_count:
-                del self.offline_count[ip]
-            if ip in self.failure_history:
-                del self.failure_history[ip]
-            save_servers(self.servers)
-            self.refresh_table()
-            if not self.monitor_paused and self.monitor_thread is not None:
-                self.monitor_thread.servers = list(self.servers.keys())
-            self.rebuild_hive_view()
-        elif ok:
-            QMessageBox.critical(self, "Erro", "Servidor não encontrado!")
-
     def refresh_table(self):
         self.table.setRowCount(0)
         self.populate_table()
 
-    def toggle_pause(self):
-        if self.monitor_paused:
-            self.monitor_thread = MonitorThread(list(self.servers.keys()))
-            self.monitor_thread.update_signal.connect(self.update_table)
-            self.monitor_thread.start()
-            self.monitor_paused = False
-            self.btn_pause.setText("Pausar Pings")
-            self.btn_pause.setStyleSheet("""
-                QPushButton {
-                    border: 1px solid #444;
-                    border-radius: 5px;
-                    padding: 5px 10px;
-                    background-color: lightgreen;
-                }
-                QPushButton:hover {
-                    background-color: #b2fab4;
-                }
-            """)
-        else:
-            if self.monitor_thread is not None:
-                self.monitor_thread.stop()
-                self.monitor_thread.wait()
-                self.monitor_thread = None
-            self.monitor_paused = True
-            self.btn_pause.setText("Despausar Pings")
-            self.btn_pause.setStyleSheet("""
-                QPushButton {
-                    border: 1px solid #444;
-                    border-radius: 5px;
-                    padding: 5px 10px;
-                    background-color: lightcoral;
-                }
-                QPushButton:hover {
-                    background-color: #f4a8a8;
-                }
-            """)
 
 # As classes ServerDashboard permanecem inalteradas
+
 class ServerDashboard(QMainWindow):
     def __init__(self, server_name, ip, failure_history):
         super().__init__()
@@ -526,705 +450,10 @@ class ServerDashboard(QMainWindow):
         details = self._tooltips_sorted[ind]
         self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
 
-# As classes ServerDashboard permanecem inalteradas
-class ServerDashboard(QMainWindow):
-    def __init__(self, server_name, ip, failure_history):
-        super().__init__()
-        self.server_name = server_name
-        self.ip = ip
-        self.failure_history = failure_history  # Lista de strings no formato "[YYYY-MM-DD HH:MM:SS] Falha: X consecutivas"
-        self.setWindowTitle(f"Dashboard - {server_name} ({ip})")
-        self.resize(900, 600)
-        self._x_sorted = []
-        self._y_sorted = []
-        self._tooltips_sorted = []
-        self.last_bucket = None
-        self.last_y_max = None
-        self.initUI()
-        self.start_clock()
-        self.start_graph_update()
-
-    def initUI(self):
-        central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #D3D3D3;")
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignCenter)
-        self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-        main_layout.addWidget(self.clock_label)
-        hbox = QHBoxLayout()
-        main_layout.addLayout(hbox)
-        left_widget = QWidget()
-        left_widget.setStyleSheet("background-color: #D3D3D3;")
-        left_layout = QVBoxLayout(left_widget)
-        self.figure, self.ax = plt.subplots()
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self.canvas)
-        hbox.addWidget(left_widget)
-        right_widget = QWidget()
-        right_widget.setStyleSheet("background-color: #D3D3D3;")
-        right_layout = QVBoxLayout(right_widget)
-        self.console_view = QPlainTextEdit()
-        self.console_view.setReadOnly(True)
-        self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-        self.console_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        right_layout.addWidget(self.console_view)
-        hbox.addWidget(right_widget)
-        self.canvas.mpl_connect("pick_event", self.on_pick)
-
-    def start_clock(self):
-        self.timer_clock = QTimer(self)
-        self.timer_clock.timeout.connect(self.update_clock)
-        self.timer_clock.start(1000)
-        self.update_clock()
-
-    def update_clock(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.clock_label.setText(current_time)
-
-    def start_graph_update(self):
-        self.timer_graph = QTimer(self)
-        self.timer_graph.timeout.connect(self.update_graph)
-        self.timer_graph.start(3000)
-        self.update_graph()
-
-    def update_graph(self):
-        self.ax.clear()
-        now = datetime.now()
-        cutoff_time = now - timedelta(minutes=10)
-        filtered_history = []
-        pattern_dt = r'\[(.*?)\]'
-        for entry in self.failure_history:
-            match_dt = re.search(pattern_dt, entry)
-            if match_dt:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    if dt_event >= cutoff_time:
-                        filtered_history.append(entry)
-                except:
-                    continue
-        groups = {}
-        pattern_fail = r'Falha: (\d+) consecutivas'
-        for entry in filtered_history:
-            match_dt = re.search(pattern_dt, entry)
-            match_fail = re.search(pattern_fail, entry)
-            if match_dt and match_fail:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    bucket = int(dt_event.timestamp() // 60)
-                    groups.setdefault(bucket, {"times": [], "entries": []})
-                    groups[bucket]["times"].append(dt_event)
-                    groups[bucket]["entries"].append(entry)
-                except Exception:
-                    continue
-        xs, ys, tooltips = [], [], []
-        for bucket in sorted(groups.keys()):
-            bucket_time = datetime.fromtimestamp(bucket * 60)
-            xs.append(bucket_time)
-            failure_values = []
-            for msg in groups[bucket]["entries"]:
-                m = re.search(pattern_fail, msg)
-                if m:
-                    failure_values.append(int(m.group(1)))
-            max_failure = max(failure_values) if failure_values else 0
-            ys.append(max_failure)
-            tooltip_text = "\n".join(groups[bucket]["entries"])
-            tooltips.append(tooltip_text)
-        if xs and ys:
-            data = sorted(zip(xs, ys, tooltips), key=lambda x: x[0])
-            x_sorted = [d[0] for d in data]
-            y_sorted = [d[1] for d in data]
-            tooltips_sorted = [d[2] for d in data]
-            self._x_sorted = x_sorted
-            self._y_sorted = y_sorted
-            self._tooltips_sorted = tooltips_sorted
-            new_last_bucket = x_sorted[-1]
-            new_y_max = max(y_sorted)
-            if self.last_bucket is None or new_last_bucket != self.last_bucket:
-                self.last_bucket = new_last_bucket
-                self.last_y_max = new_y_max
-            if self.last_y_max is None:
-                self.last_y_max = new_y_max
-            if new_y_max > self.last_y_max:
-                self.last_y_max = new_y_max
-            self.ax.fill_between(x_sorted, 0, y_sorted, color='salmon', alpha=0.2)
-            self.ax.plot(x_sorted, y_sorted, '-o', color='red')
-            self.scatter = self.ax.scatter(x_sorted, y_sorted, marker='o', facecolor='yellow', edgecolor='black', picker=True)
-            self.ax.set_ylim(0, self.last_y_max + 1)
-            self.ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            self.ax.set_title("Histórico de Falhas")
-            self.ax.set_xlabel("Exibindo últimos 10 minutos\n(Agrupados em 1 minuto)")
-            self.ax.set_ylabel("Máximo de Falhas Consecutivas")
-            self.ax.tick_params(axis='x', which='both', length=0)
-            self.ax.set_xticklabels([])
-        else:
-            self.ax.text(0.5, 0.5, "Sem falhas", horizontalalignment='center',
-                         verticalalignment='center', transform=self.ax.transAxes, fontsize=12)
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def on_pick(self, event):
-        if event.artist is not self.scatter:
-            return
-        if len(event.ind) == 0:
-            return
-        ind = event.ind[0]
-        interval_time = self._x_sorted[ind].strftime("%H:%M")
-        details = self._tooltips_sorted[ind]
-        self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
-
-
-# Suponha que a classe ServerDashboard esteja implementada neste mesmo módulo
-class ServerDashboard(QMainWindow):
-    def __init__(self, server_name, ip, failure_history):
-        super().__init__()
-        self.server_name = server_name
-        self.ip = ip
-        self.failure_history = failure_history  # Lista de strings no formato "[YYYY-MM-DD HH:MM:SS] Falha: X consecutivas"
-        self.setWindowTitle(f"Dashboard - {server_name} ({ip})")
-        self.resize(900, 600)
-        self._x_sorted = []
-        self._y_sorted = []
-        self._tooltips_sorted = []
-        self.last_bucket = None
-        self.last_y_max = None
-        self.initUI()
-        self.start_clock()
-        self.start_graph_update()
-
-    def initUI(self):
-        central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #D3D3D3;")
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignCenter)
-        self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-        main_layout.addWidget(self.clock_label)
-        hbox = QHBoxLayout()
-        main_layout.addLayout(hbox)
-        left_widget = QWidget()
-        left_widget.setStyleSheet("background-color: #D3D3D3;")
-        left_layout = QVBoxLayout(left_widget)
-        self.figure, self.ax = plt.subplots()
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self.canvas)
-        hbox.addWidget(left_widget)
-        right_widget = QWidget()
-        right_widget.setStyleSheet("background-color: #D3D3D3;")
-        right_layout = QVBoxLayout(right_widget)
-        self.console_view = QPlainTextEdit()
-        self.console_view.setReadOnly(True)
-        self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-        self.console_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        right_layout.addWidget(self.console_view)
-        hbox.addWidget(right_widget)
-        self.canvas.mpl_connect("pick_event", self.on_pick)
-
-    def start_clock(self):
-        self.timer_clock = QTimer(self)
-        self.timer_clock.timeout.connect(self.update_clock)
-        self.timer_clock.start(1000)
-        self.update_clock()
-
-    def update_clock(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.clock_label.setText(current_time)
-
-    def start_graph_update(self):
-        self.timer_graph = QTimer(self)
-        self.timer_graph.timeout.connect(self.update_graph)
-        self.timer_graph.start(3000)
-        self.update_graph()
-
-    def update_graph(self):
-        self.ax.clear()
-        now = datetime.now()
-        cutoff_time = now - timedelta(minutes=10)
-        filtered_history = []
-        pattern_dt = r'\[(.*?)\]'
-        for entry in self.failure_history:
-            match_dt = re.search(pattern_dt, entry)
-            if match_dt:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    if dt_event >= cutoff_time:
-                        filtered_history.append(entry)
-                except:
-                    continue
-        groups = {}
-        pattern_fail = r'Falha: (\d+) consecutivas'
-        for entry in filtered_history:
-            match_dt = re.search(pattern_dt, entry)
-            match_fail = re.search(pattern_fail, entry)
-            if match_dt and match_fail:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    bucket = int(dt_event.timestamp() // 60)
-                    groups.setdefault(bucket, {"times": [], "entries": []})
-                    groups[bucket]["times"].append(dt_event)
-                    groups[bucket]["entries"].append(entry)
-                except Exception:
-                    continue
-        xs, ys, tooltips = [], [], []
-        for bucket in sorted(groups.keys()):
-            bucket_time = datetime.fromtimestamp(bucket * 60)
-            xs.append(bucket_time)
-            failure_values = []
-            for msg in groups[bucket]["entries"]:
-                m = re.search(pattern_fail, msg)
-                if m:
-                    failure_values.append(int(m.group(1)))
-            max_failure = max(failure_values) if failure_values else 0
-            ys.append(max_failure)
-            tooltip_text = "\n".join(groups[bucket]["entries"])
-            tooltips.append(tooltip_text)
-        if xs and ys:
-            data = sorted(zip(xs, ys, tooltips), key=lambda x: x[0])
-            x_sorted = [d[0] for d in data]
-            y_sorted = [d[1] for d in data]
-            tooltips_sorted = [d[2] for d in data]
-            self._x_sorted = x_sorted
-            self._y_sorted = y_sorted
-            self._tooltips_sorted = tooltips_sorted
-            new_last_bucket = x_sorted[-1]
-            new_y_max = max(y_sorted)
-            if self.last_bucket is None or new_last_bucket != self.last_bucket:
-                self.last_bucket = new_last_bucket
-                self.last_y_max = new_y_max
-            if self.last_y_max is None:
-                self.last_y_max = new_y_max
-            if new_y_max > self.last_y_max:
-                self.last_y_max = new_y_max
-            self.ax.fill_between(x_sorted, 0, y_sorted, color='salmon', alpha=0.2)
-            self.ax.plot(x_sorted, y_sorted, '-o', color='red')
-            self.scatter = self.ax.scatter(x_sorted, y_sorted, marker='o', facecolor='yellow', edgecolor='black', picker=True)
-            self.ax.set_ylim(0, self.last_y_max + 1)
-            self.ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            self.ax.set_title("Histórico de Falhas")
-            self.ax.set_xlabel("Exibindo últimos 10 minutos\n(Agrupados em 1 minuto)")
-            self.ax.set_ylabel("Máximo de Falhas Consecutivas")
-            self.ax.tick_params(axis='x', which='both', length=0)
-            self.ax.set_xticklabels([])
-        else:
-            self.ax.text(0.5, 0.5, "Sem falhas", horizontalalignment='center',
-                         verticalalignment='center', transform=self.ax.transAxes, fontsize=12)
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def on_pick(self, event):
-        if event.artist is not self.scatter:
-            return
-        if len(event.ind) == 0:
-            return
-        ind = event.ind[0]
-        interval_time = self._x_sorted[ind].strftime("%H:%M")
-        details = self._tooltips_sorted[ind]
-        self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
-
-
-class ServerDashboard(QMainWindow):
-    def __init__(self, server_name, ip, failure_history):
-        super().__init__()
-        self.server_name = server_name
-        self.ip = ip
-        # failure_history: lista de strings no formato "[YYYY-MM-DD HH:MM:SS] Falha: X consecutivas"
-        self.failure_history = failure_history  
-        self.setWindowTitle(f"Dashboard - {server_name} ({ip})")
-        self.resize(900, 600)
-        # Dados do gráfico
-        self._x_sorted = []
-        self._y_sorted = []
-        self._tooltips_sorted = []
-        self.last_bucket = None
-        self.last_y_max = None
-        self.initUI()
-        self.start_clock()
-        self.start_graph_update()
-
-    def initUI(self):
-        # Widget central com fundo cinza
-        central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #D3D3D3;")
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        # Relógio (parte superior)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignCenter)
-        self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-        main_layout.addWidget(self.clock_label)
-        # Layout horizontal para gráfico e console
-        hbox = QHBoxLayout()
-        main_layout.addLayout(hbox)
-        # Widget esquerdo – gráfico (com fundo cinza)
-        left_widget = QWidget()
-        left_widget.setStyleSheet("background-color: #D3D3D3;")
-        left_layout = QVBoxLayout(left_widget)
-        self.figure, self.ax = plt.subplots()
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self.canvas)
-        hbox.addWidget(left_widget)
-        # Widget direito – console (com fundo cinza)
-        right_widget = QWidget()
-        right_widget.setStyleSheet("background-color: #D3D3D3;")
-        right_layout = QVBoxLayout(right_widget)
-        self.console_view = QPlainTextEdit()
-        self.console_view.setReadOnly(True)
-        self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-        self.console_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        right_layout.addWidget(self.console_view)
-        hbox.addWidget(right_widget)
-        # Conecta o evento de clique (picker) no scatter
-        self.canvas.mpl_connect("pick_event", self.on_pick)
-
-    def start_clock(self):
-        self.timer_clock = QTimer(self)
-        self.timer_clock.timeout.connect(self.update_clock)
-        self.timer_clock.start(1000)
-        self.update_clock()
-
-    def update_clock(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.clock_label.setText(current_time)
-
-    def start_graph_update(self):
-        self.timer_graph = QTimer(self)
-        self.timer_graph.timeout.connect(self.update_graph)
-        self.timer_graph.start(3000)
-        self.update_graph()
-
-    def update_graph(self):
-        self.ax.clear()
-        now = datetime.now()
-        cutoff_time = now - timedelta(minutes=10)
-
-        # Filtra as falhas dos últimos 10 minutos
-        filtered_history = []
-        pattern_dt = r'\[(.*?)\]'
-        for entry in self.failure_history:
-            match_dt = re.search(pattern_dt, entry)
-            if match_dt:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    if dt_event >= cutoff_time:
-                        filtered_history.append(entry)
-                except:
-                    continue
-
-        # Agrupa as falhas em buckets de 1 minuto
-        groups = {}
-        pattern_fail = r'Falha: (\d+) consecutivas'
-        for entry in filtered_history:
-            match_dt = re.search(pattern_dt, entry)
-            match_fail = re.search(pattern_fail, entry)
-            if match_dt and match_fail:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    bucket = int(dt_event.timestamp() // 60)
-                    groups.setdefault(bucket, {"times": [], "entries": []})
-                    groups[bucket]["times"].append(dt_event)
-                    groups[bucket]["entries"].append(entry)
-                except Exception:
-                    continue
-
-        xs, ys, tooltips = [], [], []
-        for bucket in sorted(groups.keys()):
-            bucket_time = datetime.fromtimestamp(bucket * 60)
-            xs.append(bucket_time)
-            failure_values = []
-            for msg in groups[bucket]["entries"]:
-                m = re.search(pattern_fail, msg)
-                if m:
-                    failure_values.append(int(m.group(1)))
-            max_failure = max(failure_values) if failure_values else 0
-            ys.append(max_failure)
-            tooltip_text = "\n".join(groups[bucket]["entries"])
-            tooltips.append(tooltip_text)
-
-        if xs and ys:
-            data = sorted(zip(xs, ys, tooltips), key=lambda x: x[0])
-            x_sorted = [d[0] for d in data]
-            y_sorted = [d[1] for d in data]
-            tooltips_sorted = [d[2] for d in data]
-
-            self._x_sorted = x_sorted
-            self._y_sorted = y_sorted
-            self._tooltips_sorted = tooltips_sorted
-
-            # Atualiza o eixo Y somente quando um novo bucket aparece
-            new_last_bucket = x_sorted[-1]
-            new_y_max = max(y_sorted)
-            if self.last_bucket is None or new_last_bucket != self.last_bucket:
-                self.last_bucket = new_last_bucket
-                self.last_y_max = new_y_max
-            if self.last_y_max is None:
-                self.last_y_max = new_y_max
-            if new_y_max > self.last_y_max:
-                self.last_y_max = new_y_max
-
-            self.ax.fill_between(x_sorted, 0, y_sorted, color='salmon', alpha=0.2)
-            self.ax.plot(x_sorted, y_sorted, '-o', color='red')
-            self.scatter = self.ax.scatter(x_sorted, y_sorted, marker='o', facecolor='yellow', edgecolor='black', picker=True)
-
-            self.ax.set_ylim(0, self.last_y_max + 1)
-            self.ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            self.ax.set_title("Histórico de Falhas")
-            self.ax.set_xlabel("Exibindo últimos 10 minutos\n(Agrupados em 1 minuto)")
-            self.ax.set_ylabel("Máximo de Falhas Consecutivas")
-            self.ax.tick_params(axis='x', which='both', length=0)
-            self.ax.set_xticklabels([])
-        else:
-            self.ax.text(0.5, 0.5, "Sem falhas", horizontalalignment='center',
-                         verticalalignment='center', transform=self.ax.transAxes, fontsize=12)
-
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def on_pick(self, event):
-        if event.artist is not self.scatter:
-            return
-        if len(event.ind) == 0:
-            return
-        ind = event.ind[0]
-        interval_time = self._x_sorted[ind].strftime("%H:%M")
-        details = self._tooltips_sorted[ind]
-        self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
-
-
-class ServerDashboard(QMainWindow):
-    def __init__(self, server_name, ip, failure_history):
-        super().__init__()
-        self.server_name = server_name
-        self.ip = ip
-        # failure_history: lista de strings no formato "[YYYY-MM-DD HH:MM:SS] Falha: X consecutivas"
-        self.failure_history = failure_history  
-        self.setWindowTitle(f"Dashboard - {server_name} ({ip})")
-        self.resize(900, 600)
-        # Dados do gráfico
-        self._x_sorted = []
-        self._y_sorted = []
-        self._tooltips_sorted = []        
-        
-        def initUI(self):
-            # Widget central com fundo cinza
-            central_widget = QWidget()
-            central_widget.setStyleSheet("background-color: #D3D3D3;")
-            self.setCentralWidget(central_widget)
-        
-            # Layout principal vertical
-            main_layout = QVBoxLayout(central_widget)
-            main_layout.setContentsMargins(0, 0, 0, 0)
-        
-            # Relógio (parte superior)
-            self.clock_label = QLabel()
-            self.clock_label.setAlignment(Qt.AlignCenter)
-            self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-            main_layout.addWidget(self.clock_label)
-        
-            # Layout horizontal para gráfico e console
-            hbox = QHBoxLayout()
-            main_layout.addLayout(hbox)
-        
-            # Widget esquerdo – gráfico (com fundo cinza)
-            left_widget = QWidget()
-            left_widget.setStyleSheet("background-color: #D3D3D3;")
-            left_layout = QVBoxLayout(left_widget)
-            self.figure, self.ax = plt.subplots()
-            self.canvas = FigureCanvas(self.figure)
-            left_layout.addWidget(self.canvas)
-            hbox.addWidget(left_widget)
-        
-            # Widget direito – console (com fundo cinza)
-            right_widget = QWidget()
-            right_widget.setStyleSheet("background-color: #D3D3D3;")
-            right_layout = QVBoxLayout(right_widget)
-            self.console_view = QPlainTextEdit()
-            self.console_view.setReadOnly(True)
-            self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-            self.console_view.setStyleSheet("""
-                QPlainTextEdit {
-                    border: 1px solid black; /* Define a borda preta */
-                    background-color: #D3D3D3; /* Fundo cinza claro */
-                    padding: 5px; /* Espaçamento interno */
-                }
-            """)
-            right_layout.addWidget(self.console_view)
-            hbox.addWidget(right_widget)
-        
-            # Conecta o evento de clique (picker) no scatter
-            self.canvas.mpl_connect("pick_event", self.on_pick)
-        self.last_bucket = None
-        self.last_y_max = None
-        self.initUI()
-        self.start_clock()
-        self.start_graph_update()
-
-    def initUI(self):
-        # Widget central com fundo cinza
-        central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #D3D3D3;")
-        self.setCentralWidget(central_widget)
-
-        # Layout principal vertical
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-
-        # Relógio (parte superior)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignCenter)
-        self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-        main_layout.addWidget(self.clock_label)
-
-        # Layout horizontal para gráfico e console
-        hbox = QHBoxLayout()
-        main_layout.addLayout(hbox)
-
-        # Widget esquerdo – gráfico (com fundo cinza)
-        left_widget = QWidget()
-        left_widget.setStyleSheet("background-color: #D3D3D3;")
-        left_layout = QVBoxLayout(left_widget)
-        self.figure, self.ax = plt.subplots()
-        self.canvas = FigureCanvas(self.figure)
-        left_layout.addWidget(self.canvas)
-        hbox.addWidget(left_widget)
-
-        # Widget direito – console (com fundo cinza)
-        right_widget = QWidget()
-        right_widget.setStyleSheet("background-color: #D3D3D3;")
-        right_layout = QVBoxLayout(right_widget)
-        self.console_view = QPlainTextEdit()
-        self.console_view.setReadOnly(True)
-        self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-        right_layout.addWidget(self.console_view)
-        hbox.addWidget(right_widget)
-
-        # Conecta o evento de clique (picker) no scatter
-        self.canvas.mpl_connect("pick_event", self.on_pick)
-
-    def start_clock(self):
-        self.timer_clock = QTimer(self)
-        self.timer_clock.timeout.connect(self.update_clock)
-        self.timer_clock.start(1000)  # Atualiza a cada segundo
-        self.update_clock()
-
-    def update_clock(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.clock_label.setText(current_time)
-
-    def start_graph_update(self):
-        self.timer_graph = QTimer(self)
-        self.timer_graph.timeout.connect(self.update_graph)
-        self.timer_graph.start(3000)  # Atualiza o gráfico a cada 3 segundos
-        self.update_graph()
-
-    def update_graph(self):
-        self.ax.clear()
-        now = datetime.now()
-        cutoff_time = now - timedelta(minutes=10)
-
-        # Filtra as falhas dos últimos 10 minutos
-        filtered_history = []
-        pattern_dt = r'\[(.*?)\]'
-        for entry in self.failure_history:
-            match_dt = re.search(pattern_dt, entry)
-            if match_dt:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    if dt_event >= cutoff_time:
-                        filtered_history.append(entry)
-                except:
-                    continue
-
-        # Agrupa as falhas em buckets de 1 minuto
-        groups = {}
-        pattern_fail = r'Falha: (\d+) consecutivas'
-        for entry in filtered_history:
-            match_dt = re.search(pattern_dt, entry)
-            match_fail = re.search(pattern_fail, entry)
-            if match_dt and match_fail:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    bucket = int(dt_event.timestamp() // 60)
-                    groups.setdefault(bucket, {"times": [], "entries": []})
-                    groups[bucket]["times"].append(dt_event)
-                    groups[bucket]["entries"].append(entry)
-                except Exception:
-                    continue
-
-        xs, ys, tooltips = [], [], []
-        for bucket in sorted(groups.keys()):
-            bucket_time = datetime.fromtimestamp(bucket * 60)
-            xs.append(bucket_time)
-            failure_values = []
-            for msg in groups[bucket]["entries"]:
-                m = re.search(pattern_fail, msg)
-                if m:
-                    failure_values.append(int(m.group(1)))
-            max_failure = max(failure_values) if failure_values else 0
-            ys.append(max_failure)
-            tooltip_text = "\n".join(groups[bucket]["entries"])
-            tooltips.append(tooltip_text)
-
-        if xs and ys:
-            data = sorted(zip(xs, ys, tooltips), key=lambda x: x[0])
-            x_sorted = [d[0] for d in data]
-            y_sorted = [d[1] for d in data]
-            tooltips_sorted = [d[2] for d in data]
-
-            self._x_sorted = x_sorted
-            self._y_sorted = y_sorted
-            self._tooltips_sorted = tooltips_sorted
-
-            # Atualiza o eixo Y somente quando um novo bucket aparece
-            new_last_bucket = x_sorted[-1]
-            new_y_max = max(y_sorted)
-            if self.last_bucket is None or new_last_bucket != self.last_bucket:
-                self.last_bucket = new_last_bucket
-                self.last_y_max = new_y_max
-            if self.last_y_max is None:
-                self.last_y_max = new_y_max
-            if new_y_max > self.last_y_max:
-                self.last_y_max = new_y_max
-
-            self.ax.fill_between(x_sorted, 0, y_sorted, color='salmon', alpha=0.2)
-            self.ax.plot(x_sorted, y_sorted, '-o', color='red')
-            self.scatter = self.ax.scatter(x_sorted, y_sorted, marker='o', facecolor='yellow', edgecolor='black', picker=True)
-
-            self.ax.set_ylim(0, self.last_y_max + 1)
-            self.ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            self.ax.set_title("Histórico de Falhas")
-            self.ax.set_xlabel("Exibindo últimos 10 minutos\n(Agrupados em 1 minuto)")
-            self.ax.set_ylabel("Máximo de Falhas Consecutivas")
-            self.ax.tick_params(axis='x', which='both', length=0)
-            self.ax.set_xticklabels([])
-
-        else:
-            self.ax.text(0.5, 0.5, "Sem falhas", horizontalalignment='center',
-                         verticalalignment='center', transform=self.ax.transAxes, fontsize=12)
-
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def on_pick(self, event):
-        if event.artist is not self.scatter:
-            return
-        if len(event.ind) == 0:
-            return
-        ind = event.ind[0]
-        interval_time = self._x_sorted[ind].strftime("%H:%M")
-        details = self._tooltips_sorted[ind]
-        self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    import sys
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
