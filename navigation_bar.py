@@ -91,7 +91,8 @@ class NavigationBar(QWidget):
                 background-color: #95A5A6;
             }
         """)
-        self.btn_add.clicked.connect(self.addServerClicked.emit)
+        # Alteração: conectar o clique para chamar o método onAddClicked (novo comportamento conforme bloco de notas)
+        self.btn_add.clicked.connect(self.onAddClicked)
         self.btn_add.hide()
 
         # Novo botão de pausar/despausar (redondo)
@@ -268,6 +269,12 @@ class NavigationBar(QWidget):
             self.btn_pause.setIcon(QIcon("pause.svg"))
             self.btn_pause.setToolTip("Pausar Pings")
         self.btn_pause.setIconSize(QSize(24,24))
+
+    def onAddClicked(self, event=None):
+        main_win = self.window()
+        if main_win and hasattr(main_win, "showEditServers"):
+            main_win.showEditServers()
+
 
 # Exemplo de teste:
 if __name__ == "__main__":

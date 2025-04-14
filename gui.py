@@ -4,15 +4,13 @@ from datetime import datetime, timedelta
 import re
 import logging
 from hive_view import HiveView
-
 import mplcursors
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QHBoxLayout,
-    QGroupBox, QAbstractItemView, QSizePolicy
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QTableWidget, QTableWidgetItem,
+    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy
 )
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtCore import Qt, QTimer
@@ -22,6 +20,9 @@ from monitor import MonitorThread
 from config import load_servers, save_servers
 from utils import validate_ip
 from navigation_bar import NavigationBar
+
+# Importa a tela de edição de servidores
+from edit_servers import EditServersWidget
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 OFFLINE_SOUND_PATH = "notification-2-269292.wav"
@@ -42,14 +43,19 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("InfraView - Monitor de Servidores")
         self.resize(1460, 930)
-        self.servers = load_servers()  # {ip: nome}
+        # Carrega os dados e converte o JSON para o formato {ip: nome}
+        loaded = load_servers()
+        if isinstance(loaded, dict) and "servers" in loaded:
+            self.servers = { server["ip"]: server["name"] for server in loaded["servers"] }
+        else:
+            self.servers = loaded  # fallback se não estiver no novo formato
+
         self.offline_count = {ip: 0 for ip in self.servers}
         self.failure_history = {ip: [] for ip in self.servers}
         self.dashboard_windows = []
         self.monitor_paused = True
         self.monitor_thread = None
 
-        # Timers e demais lógicas já existentes
         self.blink_timer = QTimer(self)
         self.blink_timer.setInterval(500)
         self.blink_timer.timeout.connect(self.toggleBlink)
@@ -64,28 +70,24 @@ class MainWindow(QMainWindow):
         self.beepCount = 1
         self.beepWait = 7000
 
-        self.initUI()
-        # Monitor não inicia automaticamente
-
-    def initUI(self):
+        # Layout principal: cria um HBox com a sidebar à esquerda
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Inserção da NavigationBar (com o novo botão de pausar/despausar)
-        self.nav_bar = NavigationBar()
+        # Instancia a NavigationBar passando 'self' (para que o pai possa ser usado para chamar showEditServers)
+        self.nav_bar = NavigationBar(self)
         self.nav_bar.addServerClicked.connect(self.add_server)
         main_layout.addWidget(self.nav_bar, 0)
 
-        # Área principal – ajustada para que o grupo "Servidores Monitorados"
-        # fique alinhado com o widget da "Visão Colmeia"
+        # Área principal existente
         self.main_content = QWidget()
         main_content_layout = QHBoxLayout(self.main_content)
         main_content_layout.setContentsMargins(10, 10, 10, 10)
         main_content_layout.setSpacing(10)
 
-        # Widget esquerdo: contém os grupos de "Servidores Monitorados" e "Registro de Falhas Offline"
+        # Widget esquerdo: tabela e registro de falhas
         left_widget = QWidget()
         left_vbox = QVBoxLayout(left_widget)
         left_vbox.setContentsMargins(0, 0, 0, 0)
@@ -110,12 +112,12 @@ class MainWindow(QMainWindow):
         left_vbox.addWidget(group_falhas)
         main_content_layout.addWidget(left_widget, 1)
 
-        # Widget direito: HiveView (Visão Colmeia)
+        # Widget direito: HiveView
         self.group_hive = QGroupBox("Visão Colmeia")
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
-        servers_data = [(self.servers[ip], 0) for ip in self.servers]
-        self.hive_view = HiveView(servers_data, columns=4)
+        # Instancia a HiveView (ela agora lê os dados sozinha do JSON)
+        self.hive_view = HiveView()
         group_hive_layout.addWidget(self.hive_view)
         main_content_layout.addWidget(self.group_hive, 1)
 
@@ -123,6 +125,41 @@ class MainWindow(QMainWindow):
 
         self.table.cellDoubleClicked.connect(self.open_dashboard)
         self.populate_table()
+
+    def showEditServers(self):
+        # Método chamado pela sidebar para exibir a tela de editar servidores
+        from edit_servers import EditServersWidget
+        edit_widget = EditServersWidget(self)
+        # Atualiza a tela inteira da gui para mostrar o edit_servers (pode ser feito via um QStackedWidget)
+        # Por simplicidade, substituímos o conteúdo central:
+        self.setCentralWidget(edit_widget)
+
+    def add_server(self):
+        ip, ok = QInputDialog.getText(self, "Adicionar Servidor", "IP do Servidor:")
+        if ok and ip:
+            if not validate_ip(ip):
+                QMessageBox.critical(self, "Erro", "Endereço IP inválido!")
+                return
+            name, ok_name = QInputDialog.getText(self, "Adicionar Servidor", "Nome do Servidor:")
+            if ok_name and name:
+                self.servers[ip] = name
+                self.offline_count[ip] = 0
+                self.failure_history[ip] = []
+                save_servers(self.servers)
+                self.refresh_table()
+                if not self.monitor_paused and self.monitor_thread is not None:
+                    self.monitor_thread.servers = list(self.servers.keys())
+                self.rebuild_hive_view()
+
+    def open_dashboard(self, row, column):
+        if column != 0:
+            return
+        name = self.table.item(row, 0).text()
+        ip = self.table.item(row, 1).text()
+        history = self.failure_history.get(ip, [])
+        dashboard = ServerDashboard(name, ip, history)
+        dashboard.show()
+        self.dashboard_windows.append(dashboard)
 
     def populate_table(self):
         self.table.setRowCount(len(self.servers))
@@ -138,8 +175,7 @@ class MainWindow(QMainWindow):
             if layout is not None and self.hive_view is not None:
                 layout.removeWidget(self.hive_view)
                 self.hive_view.deleteLater()
-            servers_data = [(self.servers[ip], 0) for ip in self.servers]
-            self.hive_view = HiveView(servers_data, columns=4)
+            self.hive_view = HiveView()
             layout.addWidget(self.hive_view)
 
     def setupMonitor(self):

@@ -1,4 +1,6 @@
 import math
+import json
+import os
 from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem
 from PyQt5.QtCore import Qt, QRect, QSize, QPointF
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF
@@ -107,27 +109,16 @@ class HexCellWidget(QWidget):
         # ---------------------------
         # Desenha o nome do servidor
         # ---------------------------
-        # Tamanho da fonte do nome (ajuste o valor 9 para diminuir ou aumentar)
         font_name = QFont("Open Sans", 8, QFont.Bold)
         painter.setFont(font_name)
         fm = QFontMetrics(font_name)
         
-        # Define o número máximo de caracteres para o nome (por padrão 14)
         max_server_chars = 13  # Altere este valor para controlar quantos caracteres serão exibidos
-        
-        # Se o nome for maior que max_server_chars, trunca
         if len(self.server_name) > max_server_chars:
             display_name = self.server_name[:max_server_chars] + "..."
         else:
             display_name = self.server_name
-
-        # Se preferir usar a abordagem baseada em pixels, pode substituir pelo código abaixo:
-        # max_text_width = fm.averageCharWidth() * 14
-        # display_name = self.server_name
-        # if fm.width(display_name) > max_text_width:
-        #     display_name = self.server_name[:14] + "..."
         
-        # Abaixa a área do nome para 35% da altura (ajuste se desejar)
         rect_name = QRect(0, 0, w, int(h * 0.65))
         painter.setPen(QColor("black"))
         painter.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, display_name)
@@ -135,8 +126,6 @@ class HexCellWidget(QWidget):
         # -------------------------------
         # Desenha a latência em ms
         # -------------------------------
-        # Define a cor do texto para a latência conforme a condição:
-        # 0 a 120 ms: branco; 120 a 800 ms: preto; acima de 800 ms: branco.
         if self.latency_ms < 0:
             ms_text_color = QColor("white")
         elif self.latency_ms < 120:
@@ -146,13 +135,10 @@ class HexCellWidget(QWidget):
         else:
             ms_text_color = QColor("white")
 
-        # Ajuste aqui o tamanho do texto da latência (valor 16)
         font_latency = QFont("Open Sans", 16, QFont.Bold)
         painter.setFont(font_latency)
         painter.setPen(ms_text_color)
-        # Se estiver offline (latency_ms negativa), exibe 0 ms.
         ms_text = f"{int(self.latency_ms) if self.latency_ms >= 0 else 0} ms"
-        # Ajuste a posição vertical do texto de latência alterando o retângulo (aqui começa em 28% da altura)
         rect_ms = QRect(0, int(h * 0.28), w, int(h * 0.55))
         painter.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, ms_text)
 
@@ -198,7 +184,6 @@ class HoneycombLayout(QLayout):
         col = 0
         for item in self.itemList:
             x = x_offset + col * (self.cell_size + self.spacing)
-            # Em linhas ímpares, desloca horizontalmente a metade do cell_size
             if row % 2 == 1:
                 x += self.cell_size // 2
             y = y_offset + row * (int(self.cell_size * 0.75) + self.spacing)
@@ -212,14 +197,54 @@ class HiveView(QWidget):
     """
     Widget que exibe uma lista de servidores em formato de colmeia,
     usando o HoneycombLayout para dispor cada HexCellWidget.
+    Nesta implementação, os dados são carregados de um arquivo JSON "servers.json",
+    que contém os servidores e as pastas.
+    A cada chamada de updateView(), os dados são recarregados e a interface é reconstruída.
     """
-    def __init__(self, servers_info, columns=5, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.servers_info = servers_info  # Lista de tuplas (server_name, latência_ms)
+        self.data_file = os.path.join(os.path.dirname(__file__), "servers.json")
+        self.servers_info = []  # Lista de tuplas (nome do servidor, latência)
+        self.folders = []       # Lista de pastas (para futura utilização no desenho, se necessário)
+        self.loadData()
         self.cells = []
         self.layout = HoneycombLayout(cell_size=128, spacing=5)
         self.setLayout(self.layout)
         self.buildUI()
+
+    def loadData(self):
+        """
+        Carrega os dados do arquivo JSON "servers.json". Caso o arquivo exista, lê a lista de servidores
+        e pastas. Os servidores são transformados em tuplas (nome, 0) sendo que a latência inicial é 0.
+        """
+        if os.path.exists(self.data_file):
+            try:
+                with open(self.data_file, "r") as f:
+                    data = json.load(f)
+                servers = data.get("servers", [])
+                self.folders = data.get("folders", [])
+                self.servers_info = [(server.get("name", "Sem Nome"), 0) for server in servers]
+            except Exception:
+                self.servers_info = []
+                self.folders = []
+        else:
+            self.servers_info = []
+            self.folders = []
+
+    def updateView(self):
+        """
+        Recarrega os dados do arquivo JSON e reconstrói a interface.
+        """
+        self.loadData()
+        # Remove todos os widgets atuais do layout
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+        self.cells = []
+        self.buildUI()
+        self.update()
 
     def buildUI(self):
         for (server_name, ms) in self.servers_info:
@@ -229,7 +254,7 @@ class HiveView(QWidget):
 
     def update_latency(self, idx, new_ms):
         if 0 <= idx < len(self.cells):
-            self.cells[idx].set_latency(new_ms)
+            self.cells[idx].set_data(self.cells[idx].server_name, new_ms)
 
     def update_all(self, new_servers_info):
         if len(new_servers_info) != len(self.cells):
@@ -246,6 +271,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
+    # Exemplo: Para teste, crie um JSON com alguns servidores ou utilize dados fictícios
     sample_data = [
         ("SER-MTZ-VEN19", 20),
         ("S2", 55),
@@ -258,10 +284,11 @@ if __name__ == "__main__":
         ("S9", 500),
         ("S10", 800),
         ("S11", 1000)
-]
-
-
-    hive_view = HiveView(sample_data, columns=4)
+    ]
+    # Se não houver arquivo JSON, é possível testar injetando temporariamente sample_data na propriedade
+    hive_view = HiveView()
+    hive_view.servers_info = sample_data  # Apenas para teste
+    hive_view.buildUI()
     hive_view.setWindowTitle("Exemplo HiveView - Honeycomb Layout")
     hive_view.show()
 
