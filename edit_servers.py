@@ -33,6 +33,16 @@ class EditServersWidget(QWidget):
         self.tabs.addTab(self.servers_page, "Editar Servidores")
         self.tabs.addTab(self.folders_page, "Editar Pastas")
 
+        # Botão para retornar à página inicial
+        back_button = QPushButton("Voltar")
+        back_button.clicked.connect(self.goBack)
+        layout.addWidget(back_button)
+
+    def goBack(self):
+        # Retorna à página inicial
+        if self.parent() and hasattr(self.parent(), "stack"):
+            self.parent().stack.setCurrentIndex(0)
+
     def loadData(self):
         if os.path.exists(self.data_file):
             try:

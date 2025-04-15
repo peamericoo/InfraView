@@ -23,10 +23,11 @@ class NavigationBar(QWidget):
     - Inicia "fechada" com 10px de largura.
     - Ao passar o mouse, expande para 80px.
     - Quando o mouse sai, contrai para 10px.
-    - Possui um botão de adicionar (add.svg) e um botão de pausar/despausar (pause/unpause)
-      que se movem de forma sincronizada, com margem configurável entre eles e com margem superior ajustável.
+    - Possui botões que se movem de forma sincronizada, com margem configurável entre eles
+      e com margem superior ajustável.
     """
     addServerClicked = pyqtSignal()
+    homeClicked = pyqtSignal()  # Novo sinal para o botão Home
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,7 +40,7 @@ class NavigationBar(QWidget):
         self.is_expanded = False
         self.pings_paused = True  # Inicialmente, os pings estão pausados
         self.top_margin = 20      # Margem superior desejada
-        self.pause_margin = 10    # Distância vertical entre os botões
+        self.button_margin = 10    # Distância vertical entre os botões
         self.first_expand = True  # Para evitar animação indesejada na primeira vez
         self.initUI()
         self.setupAnimations()
@@ -51,10 +52,15 @@ class NavigationBar(QWidget):
         self.width_anim.setDuration(self.animation_duration)
         self.width_anim_max = QPropertyAnimation(self, b"maximumWidth")
         self.width_anim_max.setDuration(self.animation_duration)
+        
+        # Animações para todos os botões
+        self.home_anim = QPropertyAnimation(self.btn_home, b"pos")
+        self.home_anim.setDuration(self.animation_duration)
         self.btn_anim = QPropertyAnimation(self.btn_add, b"pos")
         self.btn_anim.setDuration(self.animation_duration)
         self.pause_anim = QPropertyAnimation(self.btn_pause, b"pos")
         self.pause_anim.setDuration(self.animation_duration)
+        
         logging.info("Animações configuradas.")
 
     def setupTimer(self):
@@ -86,18 +92,8 @@ class NavigationBar(QWidget):
                 }
             """)
 
-        # Botão de adicionar servidor (redondo)
-        self.btn_add = QPushButton(self)
-        self.btn_add.setIcon(load_icon("add.svg"))
-        self.btn_add.setIconSize(QSize(24, 24))
-        self.btn_add.setToolTip("Adicionar Servidor")
-        self.btn_add.setFixedSize(40, 40)
-        btn_shadow = QGraphicsDropShadowEffect(self.btn_add)
-        btn_shadow.setBlurRadius(15)
-        btn_shadow.setOffset(2, 2)
-        self.btn_add.setGraphicsEffect(btn_shadow)
-        # Se houver um arquivo de estilos externo, os estilos poderão ser carregados por lá; caso contrário, usa o padrão.
-        self.btn_add.setStyleSheet("""
+        # Estilo padrão para botões redondos
+        button_style = """
             QPushButton {
                 background-color: #ECF0F1;
                 border: none;
@@ -109,7 +105,34 @@ class NavigationBar(QWidget):
             QPushButton:pressed {
                 background-color: #95A5A6;
             }
-        """)
+        """
+
+        # Botão Home (novo)
+        self.btn_home = QPushButton(self)
+        self.btn_home.setIcon(load_icon("home.svg"))
+        self.btn_home.setIconSize(QSize(24, 24))
+        self.btn_home.setToolTip("Página Inicial")
+        self.btn_home.setFixedSize(40, 40)
+        btn_home_shadow = QGraphicsDropShadowEffect(self.btn_home)
+        btn_home_shadow.setBlurRadius(15)
+        btn_home_shadow.setOffset(2, 2)
+        self.btn_home.setGraphicsEffect(btn_home_shadow)
+        self.btn_home.setStyleSheet(button_style)
+        self.btn_home.clicked.connect(self.onHomeClicked)
+        self.btn_home.hide()
+
+        # Botão de adicionar servidor (redondo)
+        self.btn_add = QPushButton(self)
+        self.btn_add.setIcon(load_icon("add.svg"))
+        self.btn_add.setIconSize(QSize(24, 24))
+        self.btn_add.setToolTip("Adicionar Servidor")
+        self.btn_add.setFixedSize(40, 40)
+        btn_shadow = QGraphicsDropShadowEffect(self.btn_add)
+        btn_shadow.setBlurRadius(15)
+        btn_shadow.setOffset(2, 2)
+        self.btn_add.setGraphicsEffect(btn_shadow)
+        # Se houver um arquivo de estilos externo, os estilos poderão ser carregados por lá; caso contrário, usa o padrão.
+        self.btn_add.setStyleSheet(button_style)
         self.btn_add.clicked.connect(self.onAddClicked)
         self.btn_add.hide()
 
@@ -157,14 +180,27 @@ class NavigationBar(QWidget):
         btn_width = self.btn_add.width()
         if self.is_expanded:
             new_x = (self.width() - btn_width) // 2
-            self.btn_add.move(new_x, self.top_margin)
-            new_y_pause = self.top_margin + self.btn_add.height() + self.pause_margin
-            self.btn_pause.move(new_x, new_y_pause)
+            
+            # Posiciona o botão Home na parte superior
+            self.btn_home.move(new_x, self.top_margin)
+            
+            # Posiciona o botão adicionar abaixo do botão Home
+            home_bottom = self.top_margin + self.btn_home.height() + self.button_margin
+            self.btn_add.move(new_x, home_bottom)
+            
+            # Posiciona o botão pausar abaixo do botão adicionar
+            add_bottom = home_bottom + self.btn_add.height() + self.button_margin
+            self.btn_pause.move(new_x, add_bottom)
         else:
-            self.btn_add.move(-btn_width, self.top_margin)
-            self.btn_pause.move(-self.btn_pause.width(), self.top_margin)
-        logging.debug("Botões posicionados: btn_add=(%d, %d), btn_pause=(%d, %d)",
-                      self.btn_add.x(), self.btn_add.y(), self.btn_pause.x(), self.btn_pause.y())
+            # Botões ficam ocultos quando a barra está recolhida
+            self.btn_home.move(-btn_width, self.top_margin)
+            self.btn_add.move(-btn_width, self.top_margin + self.btn_home.height() + self.button_margin)
+            self.btn_pause.move(-self.btn_pause.width(), self.top_margin + self.btn_home.height() + self.btn_add.height() + 2*self.button_margin)
+        
+        logging.debug("Botões posicionados: btn_home=(%d, %d), btn_add=(%d, %d), btn_pause=(%d, %d)",
+                      self.btn_home.x(), self.btn_home.y(), 
+                      self.btn_add.x(), self.btn_add.y(), 
+                      self.btn_pause.x(), self.btn_pause.y())
 
     def enterEvent(self, event):
         logging.info("Mouse entrou na NavigationBar: expandindo.")
@@ -183,42 +219,64 @@ class NavigationBar(QWidget):
         if self.is_expanded:
             logging.debug("NavigationBar já está expandida.")
             return
+        
+        # Desconecta os sinais de animação se necessário
         try:
             self.btn_anim.finished.disconnect(self.onCollapseFinished)
             self.pause_anim.finished.disconnect(self.onCollapseFinished)
+            self.home_anim.finished.disconnect(self.onCollapseFinished)
         except Exception:
             pass
+            
         logging.info("Expandindo a NavigationBar...")
-        self.btn_anim.stop()
-        self.pause_anim.stop()
         self.width_anim.stop()
         self.width_anim_max.stop()
+        
+        # Mostra todos os botões
+        self.btn_home.show()
         self.btn_add.show()
         self.btn_pause.show()
+        
+        # Animação da largura da barra
         self.width_anim.setStartValue(self.width())
         self.width_anim.setEndValue(self.expanded_width)
         self.width_anim_max.setStartValue(self.width())
         self.width_anim_max.setEndValue(self.expanded_width)
         self.width_anim.start()
         self.width_anim_max.start()
+        
+        # Calcula posições finais para os botões
+        final_x = (self.expanded_width - self.btn_home.width()) // 2
+        
+        # Animação para btn_home (novo)
+        self.home_anim.stop()
+        final_y_home = self.top_margin
+        self.home_anim.setStartValue(self.btn_home.pos())
+        self.home_anim.setEndValue(QPointF(final_x, final_y_home))
+        self.home_anim.start()
+        
         # Animação para btn_add
         self.btn_anim.stop()
-        final_x = (self.expanded_width - self.btn_add.width()) // 2
-        final_y = self.top_margin
+        final_y_add = self.top_margin + self.btn_home.height() + self.button_margin
         self.btn_anim.setStartValue(self.btn_add.pos())
-        self.btn_anim.setEndValue(QPointF(final_x, final_y))
+        self.btn_anim.setEndValue(QPointF(final_x, final_y_add))
         self.btn_anim.start()
+        
         # Animação para btn_pause
         self.pause_anim.stop()
-        final_x_pause = (self.expanded_width - self.btn_pause.width()) // 2
-        final_y_pause = self.top_margin + self.btn_add.height() + self.pause_margin
+        final_y_pause = final_y_add + self.btn_add.height() + self.button_margin
+        
         if self.first_expand:
-            self.btn_pause.move(final_x_pause, final_y_pause)
+            # Para a primeira vez, movemos diretamente sem animação
+            self.btn_home.move(final_x, final_y_home)
+            self.btn_add.move(final_x, final_y_add)
+            self.btn_pause.move(final_x, final_y_pause)
             self.first_expand = False
         else:
             self.pause_anim.setStartValue(self.btn_pause.pos())
-            self.pause_anim.setEndValue(QPointF(final_x_pause, final_y_pause))
+            self.pause_anim.setEndValue(QPointF(final_x, final_y_pause))
             self.pause_anim.start()
+        
         self.is_expanded = True
         logging.info("NavigationBar expandida.")
 
@@ -226,9 +284,8 @@ class NavigationBar(QWidget):
         if not self.is_expanded:
             logging.debug("NavigationBar já está contraída.")
             return
-        logging.info("Contratando a NavigationBar...")
-        self.btn_anim.stop()
-        self.pause_anim.stop()
+        logging.info("Contraindo a NavigationBar...")
+        
         self.width_anim.stop()
         self.width_anim_max.stop()
         self.width_anim.setStartValue(self.width())
@@ -237,33 +294,53 @@ class NavigationBar(QWidget):
         self.width_anim_max.setEndValue(self.closed_width)
         self.width_anim.start()
         self.width_anim_max.start()
+        
+        # Animação para esconder todos os botões para fora da tela
+        offscreen_x = -self.btn_home.width()
+        
+        # Animação para btn_home
+        self.home_anim.stop()
+        current_pos_home = self.btn_home.pos()
+        final_y_home = current_pos_home.y()
+        self.home_anim.setStartValue(current_pos_home)
+        self.home_anim.setEndValue(QPointF(offscreen_x, final_y_home))
+        self.home_anim.finished.connect(self.onCollapseFinished)
+        self.home_anim.start()
+        
         # Animação para btn_add
         self.btn_anim.stop()
         current_pos = self.btn_add.pos()
-        offscreen_x = -self.btn_add.width()
         final_y = current_pos.y()
         self.btn_anim.setStartValue(current_pos)
         self.btn_anim.setEndValue(QPointF(offscreen_x, final_y))
         self.btn_anim.finished.connect(self.onCollapseFinished)
         self.btn_anim.start()
+        
         # Animação para btn_pause
         self.pause_anim.stop()
         current_pos_pause = self.btn_pause.pos()
-        offscreen_x_pause = -self.btn_pause.width()
         final_y_pause = current_pos_pause.y()
         self.pause_anim.setStartValue(current_pos_pause)
-        self.pause_anim.setEndValue(QPointF(offscreen_x_pause, final_y_pause))
+        self.pause_anim.setEndValue(QPointF(offscreen_x, final_y_pause))
+        self.pause_anim.finished.connect(self.onCollapseFinished)
         self.pause_anim.start()
+        
         self.is_expanded = False
 
     def onCollapseFinished(self):
         logging.info("Animação de retração concluída; ocultando botões.")
         try:
+            # Desconecta todos os sinais para evitar chamadas repetidas
+            self.home_anim.finished.disconnect(self.onCollapseFinished)
             self.btn_anim.finished.disconnect(self.onCollapseFinished)
             self.pause_anim.finished.disconnect(self.onCollapseFinished)
         except Exception as e:
             logging.error("Erro ao desconectar sinal: %s", e)
+        
         if not self.is_expanded:
+            # Oculta todos os botões quando a barra estiver contraída
+            if self.btn_home and not self.btn_home.isHidden():
+                self.btn_home.hide()
             if self.btn_add and not self.btn_add.isHidden():
                 self.btn_add.hide()
             if self.btn_pause and not self.btn_pause.isHidden():
@@ -300,12 +377,23 @@ class NavigationBar(QWidget):
         if main_win and hasattr(main_win, "showEditServers"):
             main_win.showEditServers()
 
+    def onHomeClicked(self, event=None):
+        # Emite o sinal que pode ser conectado pela aplicação principal
+        self.homeClicked.emit()
+        logging.info("Botão Home clicado")
+        
+        # Se houver uma função para navegar para a página inicial no widget pai, chamá-la
+        main_win = self.window()
+        if main_win and hasattr(main_win, "showHomePage"):
+            main_win.showHomePage()
+
 # Exemplo de teste:
 if __name__ == "__main__":
     import sys
     from PyQt5.QtWidgets import QApplication
     app = QApplication(sys.argv)
     nav_bar = NavigationBar()
+    nav_bar.homeClicked.connect(lambda: logging.info("Clique no botão Home"))
     nav_bar.addServerClicked.connect(lambda: logging.info("Clique no botão de Adicionar Servidor"))
     nav_bar.resize(80, 300)
     nav_bar.show()

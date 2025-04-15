@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
         # Carrega os dados e converte o JSON para o formato {ip: nome}
         loaded = load_servers()
         if isinstance(loaded, dict) and "servers" in loaded:
-            self.servers = { server["ip"]: server["name"] for server in loaded["servers"] }
+            self.servers = {server["ip"]: server["name"] for server in loaded["servers"]}
         else:
             self.servers = loaded  # fallback se não estiver no novo formato
 
@@ -76,14 +76,34 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Instancia a NavigationBar passando 'self' (para que o pai possa ser usado para chamar showEditServers)
+        # Instancia a NavigationBar
         self.nav_bar = NavigationBar(self)
         self.nav_bar.addServerClicked.connect(self.add_server)
+        self.nav_bar.btn_add.clicked.connect(self.showEditServers)  # Conecta o botão de adicionar à tela de edição
+
+        # Conectar o sinal homeClicked ao método showHomePage
+        self.nav_bar.homeClicked.connect(self.showHomePage)
+
         main_layout.addWidget(self.nav_bar, 0)
 
-        # Área principal existente
-        self.main_content = QWidget()
-        main_content_layout = QHBoxLayout(self.main_content)
+        # Cria o QStackedWidget para alternar entre as telas
+        self.stack = QStackedWidget()
+        main_layout.addWidget(self.stack, 1)
+
+        # Página inicial
+        self.main_content = self.createMainPage()
+        self.stack.addWidget(self.main_content)
+
+        # Tela de edição de servidores
+        self.edit_servers_widget = EditServersWidget(self)
+        self.stack.addWidget(self.edit_servers_widget)
+
+        self.table.cellDoubleClicked.connect(self.open_dashboard)
+        self.populate_table()
+
+    def createMainPage(self):
+        main_content = QWidget()
+        main_content_layout = QHBoxLayout(main_content)
         main_content_layout.setContentsMargins(10, 10, 10, 10)
         main_content_layout.setSpacing(10)
 
@@ -116,24 +136,16 @@ class MainWindow(QMainWindow):
         self.group_hive = QGroupBox("Visão Colmeia")
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
-        # Converte os dados dos servidores para uma lista de tuplas (nome, latência=0)
         servers_data = [(self.servers[ip], 0) for ip in self.servers]
         self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
         main_content_layout.addWidget(self.group_hive, 1)
 
-        main_layout.addWidget(self.main_content, 1)
-
-        self.table.cellDoubleClicked.connect(self.open_dashboard)
-        self.populate_table()
+        return main_content
 
     def showEditServers(self):
-        # Método chamado pela sidebar para exibir a tela de editar servidores
-        from edit_servers import EditServersWidget
-        edit_widget = EditServersWidget(self)
-        # Atualiza a tela inteira da gui para mostrar o edit_servers (pode ser feito via um QStackedWidget)
-        # Por simplicidade, substituímos o conteúdo central:
-        self.setCentralWidget(edit_widget)
+        # Alterna para a tela de edição de servidores
+        self.stack.setCurrentWidget(self.edit_servers_widget)
 
     def add_server(self):
         ip, ok = QInputDialog.getText(self, "Adicionar Servidor", "IP do Servidor:")
@@ -176,7 +188,6 @@ class MainWindow(QMainWindow):
             if layout is not None and self.hive_view is not None:
                 layout.removeWidget(self.hive_view)
                 self.hive_view.deleteLater()
-            # Recria a HiveView utilizando os dados atuais dos servidores
             servers_data = [(self.servers[ip], 0) for ip in self.servers]
             self.hive_view = HiveView(servers_data, columns=4)
             layout.addWidget(self.hive_view)
@@ -247,18 +258,18 @@ class MainWindow(QMainWindow):
             if status_item and status_item.text() == "Offline":
                 if self.blink_state:
                     status_item.setForeground(QColor("red"))
-                    status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"),12)))
+                    status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"), 12)))
                 else:
-                    transparent = QColor(255,0,0,0)
+                    transparent = QColor(255, 0, 0, 0)
                     status_item.setForeground(transparent)
-                    status_item.setIcon(QIcon(create_circle_pixmap(transparent,12)))
+                    status_item.setIcon(QIcon(create_circle_pixmap(transparent, 12)))
 
     def restoreOfflineColors(self):
         for row in range(self.table.rowCount()):
             status_item = self.table.item(row, 2)
             if status_item and status_item.text() == "Offline":
                 status_item.setForeground(QColor("red"))
-                status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"),12)))
+                status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"), 12)))
 
     def startBeepLoop(self, offline_count):
         if not self.beep_active:
@@ -306,37 +317,13 @@ class MainWindow(QMainWindow):
         else:
             print("Arquivo de som não encontrado:", OFFLINE_SOUND_PATH)
 
-    def open_dashboard(self, row, column):
-        if column != 0:
-            return
-        name = self.table.item(row, 0).text()
-        ip = self.table.item(row, 1).text()
-        history = self.failure_history.get(ip, [])
-        dashboard = ServerDashboard(name, ip, history)
-        dashboard.show()
-        self.dashboard_windows.append(dashboard)
-
-    def add_server(self):
-        ip, ok = QInputDialog.getText(self, "Adicionar Servidor", "IP do Servidor:")
-        if ok and ip:
-            if not validate_ip(ip):
-                QMessageBox.critical(self, "Erro", "Endereço IP inválido!")
-                return
-            name, ok_name = QInputDialog.getText(self, "Adicionar Servidor", "Nome do Servidor:")
-            if ok_name and name:
-                self.servers[ip] = name
-                self.offline_count[ip] = 0
-                self.failure_history[ip] = []
-                save_servers(self.servers)
-                self.refresh_table()
-                if not self.monitor_paused and self.monitor_thread is not None:
-                    self.monitor_thread.servers = list(self.servers.keys())
-                self.rebuild_hive_view()
-
     def refresh_table(self):
         self.table.setRowCount(0)
         self.populate_table()
 
+    def showHomePage(self):
+        # Retorna à página principal (primeira página no QStackedWidget)
+        self.stack.setCurrentWidget(self.main_content)
 
 # As classes ServerDashboard permanecem inalteradas
 

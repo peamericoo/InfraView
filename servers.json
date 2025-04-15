@@ -43,12 +43,6 @@
             "status": "running"
         },
         {
-            "ip": "4.2.2.1",
-            "name": "Level3 DNS1",
-            "folder": "",
-            "status": "running"
-        },
-        {
             "ip": "4.2.2.2",
             "name": "Level3 DNS2",
             "folder": "",
@@ -297,12 +291,6 @@
         {
             "ip": "1.1.1.3",
             "name": "Cloudflare Security2",
-            "folder": "",
-            "status": "running"
-        },
-        {
-            "ip": "45.33.32.156",
-            "name": "Linode Test1",
             "folder": "",
             "status": "running"
         },
