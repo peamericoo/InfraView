@@ -1,10 +1,21 @@
+import os
 import logging
 from PyQt5.QtWidgets import QWidget, QPushButton, QGraphicsDropShadowEffect
-from PyQt5.QtGui import QIcon, QColor, QPainter, QPainterPath
+from PyQt5.QtGui import QIcon, QColor, QPainter, QPainterPath, QCursor
 from PyQt5.QtCore import pyqtSignal, QSize, Qt, QPropertyAnimation, QTimer, QPointF, QPoint
 from control_ping import toggle_pause
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def load_icon(filename, fallback_icon=QIcon()):
+    """
+    Tenta carregar o ícone a partir do filename. Se não existir, retorna um ícone fallback.
+    """
+    if os.path.exists(filename):
+        return QIcon(filename)
+    else:
+        logging.warning("Arquivo '%s' não encontrado. Usando fallback.", filename)
+        return fallback_icon
 
 class NavigationBar(QWidget):
     """
@@ -62,15 +73,22 @@ class NavigationBar(QWidget):
         shadow.setBlurRadius(15)
         shadow.setOffset(3, 3)
         self.setGraphicsEffect(shadow)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #2C3E50;
-            }
-        """)
+        
+        # Tente carregar o stylesheet a partir de um arquivo .qss, se existir; caso contrário, usa inline.
+        qss_file = "navigation_bar.qss"
+        if os.path.exists(qss_file):
+            with open(qss_file, "r") as f:
+                self.setStyleSheet(f.read())
+        else:
+            self.setStyleSheet("""
+                QWidget {
+                    background-color: #2C3E50;
+                }
+            """)
 
         # Botão de adicionar servidor (redondo)
         self.btn_add = QPushButton(self)
-        self.btn_add.setIcon(QIcon("add.svg"))
+        self.btn_add.setIcon(load_icon("add.svg"))
         self.btn_add.setIconSize(QSize(24, 24))
         self.btn_add.setToolTip("Adicionar Servidor")
         self.btn_add.setFixedSize(40, 40)
@@ -78,6 +96,7 @@ class NavigationBar(QWidget):
         btn_shadow.setBlurRadius(15)
         btn_shadow.setOffset(2, 2)
         self.btn_add.setGraphicsEffect(btn_shadow)
+        # Se houver um arquivo de estilos externo, os estilos poderão ser carregados por lá; caso contrário, usa o padrão.
         self.btn_add.setStyleSheet("""
             QPushButton {
                 background-color: #ECF0F1;
@@ -91,17 +110,15 @@ class NavigationBar(QWidget):
                 background-color: #95A5A6;
             }
         """)
-        # Alteração: conectar o clique para chamar o método onAddClicked (novo comportamento conforme bloco de notas)
         self.btn_add.clicked.connect(self.onAddClicked)
         self.btn_add.hide()
 
-        # Novo botão de pausar/despausar (redondo)
+        # Botão de pausar/despausar (redondo)
         self.btn_pause = QPushButton(self)
-        self.btn_pause.setIcon(QIcon("unpause.svg"))
+        self.btn_pause.setIcon(load_icon("unpause.svg"))
         self.btn_pause.setIconSize(QSize(24, 24))
         self.btn_pause.setToolTip("Despausar Pings")
         self.btn_pause.setFixedSize(40, 40)
-        # Define style fixo para cada estado (sem hover alterando a cor)
         self.btn_pause.setStyleSheet("""
             QPushButton {
                 background-color: lightgreen;
@@ -156,8 +173,10 @@ class NavigationBar(QWidget):
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        logging.info("Mouse saiu da NavigationBar: iniciando contração.")
-        self.hide_timer.start()
+        # Verifica se o cursor realmente saiu da área da NavigationBar.
+        if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            logging.info("Mouse saiu da NavigationBar: iniciando contração.")
+            self.hide_timer.start()
         super().leaveEvent(event)
 
     def expand(self):
@@ -170,6 +189,8 @@ class NavigationBar(QWidget):
         except Exception:
             pass
         logging.info("Expandindo a NavigationBar...")
+        self.btn_anim.stop()
+        self.pause_anim.stop()
         self.width_anim.stop()
         self.width_anim_max.stop()
         self.btn_add.show()
@@ -206,6 +227,8 @@ class NavigationBar(QWidget):
             logging.debug("NavigationBar já está contraída.")
             return
         logging.info("Contratando a NavigationBar...")
+        self.btn_anim.stop()
+        self.pause_anim.stop()
         self.width_anim.stop()
         self.width_anim_max.stop()
         self.width_anim.setStartValue(self.width())
@@ -241,8 +264,10 @@ class NavigationBar(QWidget):
         except Exception as e:
             logging.error("Erro ao desconectar sinal: %s", e)
         if not self.is_expanded:
-            self.btn_add.hide()
-            self.btn_pause.hide()
+            if self.btn_add and not self.btn_add.isHidden():
+                self.btn_add.hide()
+            if self.btn_pause and not self.btn_pause.isHidden():
+                self.btn_pause.hide()
 
     def onPauseClicked(self):
         main_window = self.window()
@@ -256,7 +281,7 @@ class NavigationBar(QWidget):
                     border-radius: 20px;
                 }
             """)
-            self.btn_pause.setIcon(QIcon("unpause.svg"))
+            self.btn_pause.setIcon(load_icon("unpause.svg"))
             self.btn_pause.setToolTip("Despausar Pings")
         else:
             self.btn_pause.setStyleSheet("""
@@ -266,15 +291,14 @@ class NavigationBar(QWidget):
                     border-radius: 20px;
                 }
             """)
-            self.btn_pause.setIcon(QIcon("pause.svg"))
+            self.btn_pause.setIcon(load_icon("pause.svg"))
             self.btn_pause.setToolTip("Pausar Pings")
-        self.btn_pause.setIconSize(QSize(24,24))
+        self.btn_pause.setIconSize(QSize(24, 24))
 
     def onAddClicked(self, event=None):
         main_win = self.window()
         if main_win and hasattr(main_win, "showEditServers"):
             main_win.showEditServers()
-
 
 # Exemplo de teste:
 if __name__ == "__main__":

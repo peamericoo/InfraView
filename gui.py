@@ -116,8 +116,9 @@ class MainWindow(QMainWindow):
         self.group_hive = QGroupBox("Visão Colmeia")
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
-        # Instancia a HiveView (ela agora lê os dados sozinha do JSON)
-        self.hive_view = HiveView()
+        # Converte os dados dos servidores para uma lista de tuplas (nome, latência=0)
+        servers_data = [(self.servers[ip], 0) for ip in self.servers]
+        self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
         main_content_layout.addWidget(self.group_hive, 1)
 
@@ -175,7 +176,9 @@ class MainWindow(QMainWindow):
             if layout is not None and self.hive_view is not None:
                 layout.removeWidget(self.hive_view)
                 self.hive_view.deleteLater()
-            self.hive_view = HiveView()
+            # Recria a HiveView utilizando os dados atuais dos servidores
+            servers_data = [(self.servers[ip], 0) for ip in self.servers]
+            self.hive_view = HiveView(servers_data, columns=4)
             layout.addWidget(self.hive_view)
 
     def setupMonitor(self):

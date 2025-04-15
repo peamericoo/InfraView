@@ -1,11 +1,18 @@
 import os
 import json
 import socket
+import ipaddress
+import logging
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget, QLineEdit, QPushButton,
     QComboBox, QListWidget, QListWidgetItem, QColorDialog, QCheckBox, QGroupBox, QMessageBox
 )
 from PyQt5.QtGui import QColor
+
+# Configuração de logging para depuração
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class EditServersWidget(QWidget):
     def __init__(self, parent=None):
@@ -31,9 +38,13 @@ class EditServersWidget(QWidget):
             try:
                 with open(self.data_file, "r") as f:
                     data = json.load(f)
+                # Valida a estrutura do arquivo JSON
+                if not isinstance(data, dict) or "servers" not in data or "folders" not in data:
+                    raise ValueError("Estrutura inválida. O JSON deve conter as chaves 'servers' e 'folders'.")
                 self.servers_data = data.get("servers", [])
                 self.folders_data = data.get("folders", [])
-            except Exception:
+            except Exception as e:
+                QMessageBox.critical(self, "Erro", f"O arquivo JSON '{self.data_file}' está corrompido ou possui estrutura inválida: {e}")
                 self.servers_data = []
                 self.folders_data = []
         else:
@@ -48,15 +59,49 @@ class EditServersWidget(QWidget):
         try:
             with open(self.data_file, "w") as f:
                 json.dump(data, f, indent=4)
+            logger.info(f"Dados salvos com sucesso em {self.data_file}")
+            
+            # Chama refreshAll com try/except para evitar erros com objetos inválidos
+            try:
+                self.refreshAll()
+            except Exception as e:
+                logger.error(f"Erro ao atualizar interface: {e}")
+                
         except Exception as e:
-            QMessageBox.critical(self, "Erro", f"Não foi possível salvar os dados: {e}")
-            return
-        self.refreshAll()
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar os dados no arquivo '{self.data_file}': {e}")
+            logger.error(f"Erro ao salvar dados: {e}")
 
     def refreshAll(self):
-        # Se o pai possuir um método hive_view.updateView() podemos chamar para atualizar
-        if self.parent() and hasattr(self.parent(), "hive_view"):
-            self.parent().hive_view.updateView()
+        """
+        Atualiza a interface gráfica após alterações nos dados.
+        Usa tratamento de exceções para evitar crashes por referências inválidas.
+        """
+        try:
+            # Verifica se o widget pai existe
+            parent = self.parent()
+            if parent is None:
+                logger.info("Widget pai não encontrado, atualizando apenas interface local")
+                return
+                
+            # Verifica com segurança a existência do objeto hive_view
+            hive_view = getattr(parent, "hive_view", None)
+            if hive_view is None:
+                logger.info("Objeto hive_view não encontrado no pai")
+                return
+                
+            # Verifica se o método updateView existe e é chamável
+            update_method = getattr(hive_view, "updateView", None)
+            if callable(update_method):
+                logger.info("Chamando método updateView")
+                update_method()
+            else:
+                logger.info("Método updateView não é chamável ou não existe")
+                
+        except RuntimeError as e:
+            # Captura erros de objetos C++ que foram destruídos
+            logger.error(f"Erro de objeto C++ (possivelmente destruído): {e}")
+        except Exception as e:
+            logger.error(f"Erro ao atualizar interface: {e}")
 
     # =================== Página Editar Servidores ===================
     def createServersPage(self):
@@ -67,28 +112,28 @@ class EditServersWidget(QWidget):
         # Bloco Adicionar Servidor
         add_group = QGroupBox("Adicionar Servidor")
         add_layout = QVBoxLayout(add_group)
-        self.serverNameInput_add = QLineEdit()
+        self.serverNameInput_add = QLineEdit(self)
         self.serverNameInput_add.setPlaceholderText("Nome do servidor")
-        self.serverIPInput_add = QLineEdit()
+        self.serverIPInput_add = QLineEdit(self)
         self.serverIPInput_add.setPlaceholderText("IP ou URL")
-        self.folderSelect_add = QComboBox()
+        self.folderSelect_add = QComboBox(self)
         self.folderSelect_add.addItem("Sem pasta")
         for folder in self.folders_data:
             self.folderSelect_add.addItem(folder["name"])
-        add_btn = QPushButton("Adicionar Servidor")
+        add_btn = QPushButton("Adicionar Servidor", self)
         add_btn.clicked.connect(self.onAddServer)
         add_layout.addWidget(self.serverNameInput_add)
         add_layout.addWidget(self.serverIPInput_add)
-        add_layout.addWidget(QLabel("Pasta:"))
+        add_layout.addWidget(QLabel("Pasta:", self))
         add_layout.addWidget(self.folderSelect_add)
         add_layout.addWidget(add_btn)
 
         # Bloco Remover Servidor
         remove_group = QGroupBox("Remover Servidor")
         remove_layout = QVBoxLayout(remove_group)
-        self.serverList_remove = QListWidget()
+        self.serverList_remove = QListWidget(self)
         self.refreshRemoveList()
-        rem_btn = QPushButton("Remover Servidor Selecionado")
+        rem_btn = QPushButton("Remover Servidor Selecionado", self)
         rem_btn.clicked.connect(self.onRemoveServer)
         remove_layout.addWidget(self.serverList_remove)
         remove_layout.addWidget(rem_btn)
@@ -96,14 +141,14 @@ class EditServersWidget(QWidget):
         # Bloco Editar Servidor
         edit_group = QGroupBox("Editar Servidor")
         edit_layout = QVBoxLayout(edit_group)
-        self.serverSelect_edit = QComboBox()
+        self.serverSelect_edit = QComboBox(self)
         self.refreshEditCombo()
-        self.serverNameInput_edit = QLineEdit()
+        self.serverNameInput_edit = QLineEdit(self)
         self.serverNameInput_edit.setPlaceholderText("Novo nome do servidor")
-        self.serverIPInput_edit = QLineEdit()
+        self.serverIPInput_edit = QLineEdit(self)
         self.serverIPInput_edit.setPlaceholderText("Novo IP ou URL")
-        self.pauseCheck_edit = QCheckBox("Pausar servidor (Pausado pelo usuário)")
-        edit_btn = QPushButton("Editar Servidor")
+        self.pauseCheck_edit = QCheckBox("Pausar servidor (Pausado pelo usuário)", self)
+        edit_btn = QPushButton("Editar Servidor", self)
         edit_btn.clicked.connect(self.onEditServer)
         edit_layout.addWidget(self.serverSelect_edit)
         edit_layout.addWidget(self.serverNameInput_edit)
@@ -111,7 +156,7 @@ class EditServersWidget(QWidget):
         edit_layout.addWidget(self.pauseCheck_edit)
         edit_layout.addWidget(edit_btn)
 
-        # Organiza os três blocos lado a lado ou em coluna (aqui usei uma coluna para simplicidade)
+        # Organiza os três blocos
         main_layout.addWidget(add_group)
         main_layout.addWidget(remove_group)
         main_layout.addWidget(edit_group)
@@ -124,11 +169,15 @@ class EditServersWidget(QWidget):
         if selected_folder == "Sem pasta":
             selected_folder = ""
         if not name or not ip_or_url:
+            QMessageBox.warning(self, "Atenção", "Os campos 'Nome do servidor' e 'IP ou URL' são obrigatórios!")
             return
         try:
             resolved_ip = socket.gethostbyname(ip_or_url)
-        except:
-            resolved_ip = ip_or_url
+            # Valida se o IP resolvido é válido
+            ipaddress.ip_address(resolved_ip)
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"O IP ou domínio '{ip_or_url}' não é válido: {e}")
+            return
         new_server = {
             "name": name,
             "ip": resolved_ip,
@@ -157,6 +206,7 @@ class EditServersWidget(QWidget):
     def onEditServer(self):
         current_name = self.serverSelect_edit.currentText()
         if not current_name:
+            QMessageBox.warning(self, "Atenção", "Selecione um servidor para editar!")
             return
         for server in self.servers_data:
             if server["name"] == current_name:
@@ -167,8 +217,10 @@ class EditServersWidget(QWidget):
                 if new_ip_or_url:
                     try:
                         resolved_ip = socket.gethostbyname(new_ip_or_url)
-                    except:
-                        resolved_ip = new_ip_or_url
+                        ipaddress.ip_address(resolved_ip)
+                    except Exception as e:
+                        QMessageBox.critical(self, "Erro", f"O IP ou domínio '{new_ip_or_url}' fornecido é inválido: {e}")
+                        return
                     server["ip"] = resolved_ip
                 if self.pauseCheck_edit.isChecked():
                     server["status"] = "Pausado pelo usuário"
@@ -186,6 +238,7 @@ class EditServersWidget(QWidget):
     def onRemoveServer(self):
         selected_items = self.serverList_remove.selectedItems()
         if not selected_items:
+            QMessageBox.warning(self, "Atenção", "Selecione ao menos um servidor para remover.")
             return
         names_to_remove = [item.text() for item in selected_items]
         self.servers_data = [s for s in self.servers_data if s["name"] not in names_to_remove]
@@ -202,11 +255,11 @@ class EditServersWidget(QWidget):
         # Bloco Adicionar Pasta
         add_folder_group = QGroupBox("Adicionar Pasta")
         add_folder_layout = QVBoxLayout(add_folder_group)
-        self.folderNameInput_add = QLineEdit()
+        self.folderNameInput_add = QLineEdit(self)
         self.folderNameInput_add.setPlaceholderText("Nome da Pasta")
-        self.folderColorLabel_add = QLabel("Cor: #000000")
+        self.folderColorLabel_add = QLabel("Cor: #000000", self)
         self.folderColor_add = "#000000"
-        color_btn = QPushButton("Escolher Cor")
+        color_btn = QPushButton("Escolher Cor", self)
         color_btn.clicked.connect(self.onPickColorAdd)
         # Organiza nome e cor horizontalmente
         top_layout = QHBoxLayout()
@@ -215,29 +268,29 @@ class EditServersWidget(QWidget):
         top_layout.addWidget(color_btn)
         add_folder_layout.addLayout(top_layout)
         # Lista de servidores para associar à pasta
-        self.serverList_addFolder = QListWidget()
+        self.serverList_addFolder = QListWidget(self)
         self.serverList_addFolder.setSelectionMode(self.serverList_addFolder.MultiSelection)
         self.refreshServerListForFolder()
-        add_folder_layout.addWidget(QLabel("Selecione os servidores para esta pasta:"))
+        add_folder_layout.addWidget(QLabel("Selecione os servidores para esta pasta:", self))
         add_folder_layout.addWidget(self.serverList_addFolder)
-        add_folder_btn = QPushButton("Criar Pasta")
+        add_folder_btn = QPushButton("Criar Pasta", self)
         add_folder_btn.clicked.connect(self.onAddFolder)
         add_folder_layout.addWidget(add_folder_btn)
 
         # Bloco Editar/Remover Pasta
         edit_folder_group = QGroupBox("Editar / Remover Pasta")
         edit_folder_layout = QVBoxLayout(edit_folder_group)
-        self.folderList_edit = QListWidget()
+        self.folderList_edit = QListWidget(self)
         self.folderList_edit.setSelectionMode(self.folderList_edit.SingleSelection)
         self.refreshFolderList()
-        edit_folder_layout.addWidget(QLabel("Selecione a Pasta:"))
+        edit_folder_layout.addWidget(QLabel("Selecione a Pasta:", self))
         edit_folder_layout.addWidget(self.folderList_edit)
         # Campos para edição
-        self.folderNameInput_edit = QLineEdit()
+        self.folderNameInput_edit = QLineEdit(self)
         self.folderNameInput_edit.setPlaceholderText("Novo nome da Pasta")
-        self.folderColorLabel_edit = QLabel("Nova cor: ")
+        self.folderColorLabel_edit = QLabel("Nova cor: ", self)
         self.folderColor_edit = ""
-        color_btn_edit = QPushButton("Escolher Cor")
+        color_btn_edit = QPushButton("Escolher Cor", self)
         color_btn_edit.clicked.connect(self.onPickColorEdit)
         edit_fields_layout = QHBoxLayout()
         edit_fields_layout.addWidget(self.folderNameInput_edit)
@@ -246,9 +299,9 @@ class EditServersWidget(QWidget):
         edit_folder_layout.addLayout(edit_fields_layout)
         # Botões de ação
         btns_layout = QHBoxLayout()
-        edit_folder_btn = QPushButton("Editar Pasta")
+        edit_folder_btn = QPushButton("Editar Pasta", self)
         edit_folder_btn.clicked.connect(self.onEditFolder)
-        remove_folder_btn = QPushButton("Remover Pasta")
+        remove_folder_btn = QPushButton("Remover Pasta", self)
         remove_folder_btn.clicked.connect(self.onRemoveFolder)
         btns_layout.addWidget(edit_folder_btn)
         btns_layout.addWidget(remove_folder_btn)
@@ -271,7 +324,6 @@ class EditServersWidget(QWidget):
             self.folderList_edit.addItem(item)
 
     def onPickColorAdd(self):
-        from PyQt5.QtWidgets import QColorDialog
         color = QColorDialog.getColor()
         if color.isValid():
             self.folderColor_add = color.name()
@@ -280,6 +332,7 @@ class EditServersWidget(QWidget):
     def onAddFolder(self):
         folder_name = self.folderNameInput_add.text().strip()
         if not folder_name:
+            QMessageBox.warning(self, "Atenção", "O nome da pasta é obrigatório!")
             return
         new_folder = {
             "name": folder_name,
@@ -300,7 +353,6 @@ class EditServersWidget(QWidget):
         self.refreshFolderList()
 
     def onPickColorEdit(self):
-        from PyQt5.QtWidgets import QColorDialog
         color = QColorDialog.getColor()
         if color.isValid():
             self.folderColor_edit = color.name()
@@ -309,6 +361,7 @@ class EditServersWidget(QWidget):
     def onEditFolder(self):
         selected_item = self.folderList_edit.currentItem()
         if not selected_item:
+            QMessageBox.warning(self, "Atenção", "Selecione uma pasta para editar!")
             return
         current_folder = selected_item.text()
         for f in self.folders_data:
@@ -332,6 +385,7 @@ class EditServersWidget(QWidget):
     def onRemoveFolder(self):
         selected_item = self.folderList_edit.currentItem()
         if not selected_item:
+            QMessageBox.warning(self, "Atenção", "Selecione uma pasta para remover!")
             return
         folder_to_remove = selected_item.text()
         self.folders_data = [f for f in self.folders_data if f["name"] != folder_to_remove]

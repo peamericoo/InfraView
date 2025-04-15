@@ -4,17 +4,11 @@
             "ip": "1.1.1.1",
             "name": "SER-MTZ-VEN18",
             "folder": "C\u00e2meras",
-            "status": "Pausado pelo usu\u00e1rio"
+            "status": "running"
         },
         {
             "ip": "1.0.0.1",
             "name": "Cloudflare DNS2",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "8.8.8.8",
-            "name": "Google DNS1",
             "folder": "C\u00e2meras",
             "status": "running"
         },
@@ -67,12 +61,6 @@
             "status": "running"
         },
         {
-            "ip": "8.20.247.20",
-            "name": "Comodo DNS2",
-            "folder": "",
-            "status": "running"
-        },
-        {
             "ip": "64.6.64.6",
             "name": "VeriSign DNS1",
             "folder": "",
@@ -117,12 +105,6 @@
         {
             "ip": "156.154.71.2",
             "name": "Neustar DNS4",
-            "folder": "",
-            "status": "running"
-        },
-        {
-            "ip": "45.90.28.0",
-            "name": "NextDNS1",
             "folder": "",
             "status": "running"
         },
@@ -177,12 +159,6 @@
         {
             "ip": "13.107.21.200",
             "name": "MS Outlook",
-            "folder": "",
-            "status": "running"
-        },
-        {
-            "ip": "204.79.197.200",
-            "name": "Bing",
             "folder": "",
             "status": "running"
         },
@@ -340,6 +316,12 @@
             "ip": "74.125.200.99",
             "name": "Google-other6",
             "folder": "",
+            "status": "running"
+        },
+        {
+            "name": "Teste",
+            "ip": "172.217.162.227",
+            "folder": "C\u00e2meras",
             "status": "running"
         }
     ],

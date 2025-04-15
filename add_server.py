@@ -2,8 +2,17 @@
 import socket
 import json
 import os
+import ipaddress
+import logging
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QColorDialog
 from utils import validate_ip
+
+def is_valid_ip(ip):
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
 
 def add_server_dialog(parent):
     """
@@ -28,15 +37,14 @@ def add_server_dialog(parent):
         return
 
     ip_candidate = ip_or_domain.strip()
-    # Se não for um IP válido, tenta resolver como domínio
     if not validate_ip(ip_candidate):
         try:
             ip_candidate = socket.gethostbyname(ip_candidate)
         except Exception:
-            QMessageBox.critical(parent, "Erro", "Domínio inválido ou não resolvido!")
+            QMessageBox.critical(parent, "Erro", f"Domínio inválido ou não resolvido: {ip_or_domain}")
             return
-        if not validate_ip(ip_candidate):
-            QMessageBox.critical(parent, "Erro", "Endereço IP resolvido é inválido!")
+        if not is_valid_ip(ip_candidate):
+            QMessageBox.critical(parent, "Erro", f"Endereço IP resolvido é inválido: {ip_candidate}")
             return
 
     # Solicita o nome do servidor
@@ -47,22 +55,17 @@ def add_server_dialog(parent):
         return
     name = name.strip()
 
-    # Solicita o nome da pasta para agrupar o servidor
+    # Solicita o nome da pasta
     folder_name, ok = QInputDialog.getText(
         parent, "Adicionar Servidor - Pasta", "Digite o Nome da Pasta para agrupar o servidor:"
     )
-    if not ok or not folder_name.strip():
-        folder_name = ""
-    else:
-        folder_name = folder_name.strip()
+    folder_name = folder_name.strip() if ok and folder_name.strip() else ""
 
-    # Solicita a cor da pasta (na nova implementação essa cor não é armazenada junto ao servidor,
-    # mas pode ser utilizada no gerenciamento de pastas)
+    # Solicita a cor da pasta
     folder_color = QColorDialog.getColor(parent=parent, title="Selecionar Cor da Pasta")
     if not folder_color.isValid():
         from PyQt5.QtGui import QColor
         folder_color = QColor("black")
-    # A cor não é utilizada na estrutura do servidor, apenas pode ser incorporada na lógica de pastas
 
     # Carrega ou inicializa os dados do arquivo JSON
     data_file = os.path.join(os.path.dirname(__file__), "servers.json")
@@ -70,12 +73,21 @@ def add_server_dialog(parent):
         try:
             with open(data_file, "r") as f:
                 data = json.load(f)
+        except json.JSONDecodeError:
+            QMessageBox.critical(parent, "Erro", "O arquivo servers.json está corrompido!")
+            return
         except Exception:
             data = {"servers": [], "folders": []}
     else:
         data = {"servers": [], "folders": []}
 
-    # Cria o novo servidor e o adiciona à lista de servidores
+    # Valida a estrutura do JSON
+    if "servers" not in data or not isinstance(data["servers"], list):
+        data["servers"] = []
+    if "folders" not in data or not isinstance(data["folders"], list):
+        data["folders"] = []
+
+    # Cria o novo servidor
     new_server = {
         "name": name,
         "ip": ip_candidate,
@@ -89,11 +101,16 @@ def add_server_dialog(parent):
         with open(data_file, "w") as f:
             json.dump(data, f, indent=4)
     except Exception as e:
-        QMessageBox.critical(parent, "Erro", f"Não foi possível salvar os dados: {e}")
+        QMessageBox.critical(parent, "Erro", f"Não foi possível salvar os dados no arquivo {data_file}: {e}")
         return
 
-    # Atualiza a interface do pai, se os métodos refresh_table() e rebuild_hive_view() estiverem disponíveis
+    # Atualiza a interface do pai
     if hasattr(parent, "refresh_table"):
         parent.refresh_table()
+    else:
+        logging.warning("O método refresh_table não está disponível no objeto pai.")
+
     if hasattr(parent, "rebuild_hive_view"):
         parent.rebuild_hive_view()
+    else:
+        logging.warning("O método rebuild_hive_view não está disponível no objeto pai.")
