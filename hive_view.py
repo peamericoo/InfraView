@@ -2,18 +2,14 @@ import math
 import json
 import os
 import logging
-from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem
-from PyQt5.QtCore import Qt, QRect, QSize, QPointF
-from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase
+from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem, QScrollArea, QFrame
+from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
+from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor
 
 # Definindo nível de log para INFO em produção (pode ser alterado para DEBUG quando necessário)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def lerp_color(value, min_val, max_val, color_min, color_max):
-    """
-    Interpola linearmente entre duas cores conforme 'value' em [min_val, max_val].
-    Evita divisão por zero caso min_val seja igual a max_val.
-    """
     if value < min_val:
         value = min_val
     if value > max_val:
@@ -27,37 +23,20 @@ def lerp_color(value, min_val, max_val, color_min, color_max):
     return QColor(r, g, b)
 
 def get_contrasting_text_color(bg_color):
-    """
-    Retorna branco ou preto, de modo a ter bom contraste com o fundo.
-    """
     luminance = (0.299 * bg_color.red() + 0.587 * bg_color.green() + 0.114 * bg_color.blue()) / 255
     return QColor(255, 255, 255) if luminance < 0.5 else QColor(0, 0, 0)
 
 class HexCellWidget(QWidget):
-    """
-    Widget que desenha um hexágono com:
-      - Nome do servidor (truncado se longo) sempre em negrito.
-      - Latência (ms) em destaque com cores diferenciadas:
-          * 0 a 120 ms: texto em branco.
-          * 120 a 800 ms: texto em preto.
-          * Acima de 800 ms: texto em branco.
-      Se o servidor estiver offline (latency_ms negativa), exibe 0 ms.
-      A cor do hexágono é interpolada de verde (latência baixa) a vermelho (latência alta).
-    """
     def __init__(self, server_name, latency_ms=0.0, parent=None):
         super().__init__(parent)
         self.server_name = server_name
         self.latency_ms = latency_ms
         self.min_ms = 0
-        self.max_ms = 1000  # Valor máximo de latência para mapeamento
+        self.max_ms = 1000
         self.setMinimumSize(QSize(80, 80))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
-        # Verificação de fonte feita apenas uma vez na inicialização
         self.font_db = QFontDatabase()
         self.has_open_sans = "Open Sans" in self.font_db.families()
-        
-        # Pré-configuração das fontes
         if self.has_open_sans:
             self.font_name = QFont("Open Sans", 8, QFont.Bold)
             self.font_latency = QFont("Open Sans", 16, QFont.Bold)
@@ -79,12 +58,10 @@ class HexCellWidget(QWidget):
         if w <= 2 or h <= 2:
             return
 
-        # Calcula o "side" para o hexágono – 45% do menor lado, com valor mínimo de 1.
         side = max(1.0, min(w, h) * 0.45)
         cx = w / 2
         cy = h / 2
 
-        # Gera os seis pontos do hexágono (ângulos de -30, 30, 90, 150, 210 e 270 graus)
         points = []
         for i in range(6):
             angle_deg = 60 * i - 30
@@ -94,26 +71,17 @@ class HexCellWidget(QWidget):
             points.append((x, y))
         poly = QPolygonF([QPointF(px, py) for (px, py) in points])
 
-        # Define a cor de fundo do hex
         if self.latency_ms < 0:
             bg_color = QColor(255, 0, 0)
         else:
             if self.latency_ms <= 100:
-                color_min_level = QColor(144, 238, 144)  # LightGreen
-                color_max_level = QColor(0, 128, 0)       # DarkGreen
-                bg_color = lerp_color(self.latency_ms, 0, 100, color_min_level, color_max_level)
+                bg_color = lerp_color(self.latency_ms, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
             elif self.latency_ms <= 300:
-                color_min_level = QColor(0, 128, 0)
-                color_max_level = QColor(255, 255, 0)       # Yellow
-                bg_color = lerp_color(self.latency_ms, 100, 300, color_min_level, color_max_level)
+                bg_color = lerp_color(self.latency_ms, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
             elif self.latency_ms <= 600:
-                color_min_level = QColor(255, 255, 0)       # Yellow
-                color_max_level = QColor(255, 165, 0)         # Orange
-                bg_color = lerp_color(self.latency_ms, 300, 600, color_min_level, color_max_level)
+                bg_color = lerp_color(self.latency_ms, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
             elif self.latency_ms <= 1000:
-                color_min_level = QColor(255, 165, 0)         # Orange
-                color_max_level = QColor(255, 0, 0)           # Red
-                bg_color = lerp_color(self.latency_ms, 600, 1000, color_min_level, color_max_level)
+                bg_color = lerp_color(self.latency_ms, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
             else:
                 bg_color = QColor(255, 0, 0)
 
@@ -121,22 +89,13 @@ class HexCellWidget(QWidget):
         painter.setBrush(QBrush(bg_color))
         painter.drawPolygon(poly)
 
-        # ---------------------------
-        # Desenha o nome do servidor
-        # ---------------------------
         painter.setFont(self.font_name)
         fm = QFontMetrics(self.font_name)
-        
-        max_server_chars = 13  # Quantidade máxima de caracteres exibidos antes de truncar
-        display_name = self.server_name if len(self.server_name) <= max_server_chars else self.server_name[:max_server_chars] + "..."
+        display_name = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
         rect_name = QRect(0, 0, w, int(h * 0.65))
         painter.setPen(QColor("black"))
         painter.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, display_name)
 
-        # -------------------------------
-        # Desenha a latência em ms
-        # -------------------------------
-        # Definição de cores de texto de latência claramente delimitadas
         if self.latency_ms < 0:
             ms_text_color = QColor("white")
         elif self.latency_ms < 120:
@@ -153,21 +112,22 @@ class HexCellWidget(QWidget):
         painter.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, ms_text)
 
 class HoneycombLayout(QLayout):
-    """
-    Layout customizado para dispor os widgets em estilo honeycomb (colmeia).
-    Em linhas ímpares, as células são deslocadas horizontalmente.
-    
-    Método setGeometry:
-      - Divide a largura total disponível pelo (cell_size + spacing) para calcular o número de colunas.
-      - Desloca horizontalmente as linhas ímpares (metade do cell_size) para criar o efeito de colmeia.
-      - Gera mensagens (opcionalmente via logging) para depuração do posicionamento dos widgets.
-    """
     def __init__(self, parent=None, cell_size=100, spacing=5, columns=None):
         super().__init__(parent)
         self.itemList = []
         self.cell_size = cell_size
         self.spacing = spacing
-        self.fixed_columns = columns  # Armazena o número fixo de colunas, se especificado
+        self.fixed_columns = columns
+        self.offset_x = 0
+        self.offset_y = 0
+
+    def setOffset(self, offset_x, offset_y):
+        self.offset_x = offset_x
+        self.offset_y = offset_y
+        self.update()
+
+    def getOffset(self):
+        return (self.offset_x, self.offset_y)
 
     def addItem(self, item):
         self.itemList.append(item)
@@ -186,40 +146,24 @@ class HoneycombLayout(QLayout):
         return None
 
     def sizeHint(self):
-        # Calcula o sizeHint com base no número de itens e tamanho da célula
         if not self.itemList:
             return QSize(600, 400)
-            
-        # Determina o número de colunas
         cols = self.fixed_columns if self.fixed_columns else max(1, int(math.sqrt(len(self.itemList)) * 1.5))
         rows_needed = math.ceil(len(self.itemList) / cols)
-        
-        # Calcula a largura considerando o deslocamento das linhas ímpares
         width = cols * (self.cell_size + self.spacing) + self.spacing
-        
-        # Calcula a altura total
         height = int(rows_needed * (self.cell_size * 0.75 + self.spacing) + self.cell_size * 0.25 + self.spacing)
-        
         return QSize(width, height)
 
     def setGeometry(self, rect):
         super().setGeometry(rect)
         if not self.itemList:
             return
-            
         total_width = rect.width()
-        
-        # Usa o número fixo de colunas se especificado, caso contrário calcula dinamicamente
-        if self.fixed_columns:
-            cols = self.fixed_columns
-        else:
-            cols = max(1, total_width // (self.cell_size + self.spacing))
-            
-        x_offset = rect.x()
-        y_offset = rect.y()
+        cols = self.fixed_columns if self.fixed_columns else max(1, total_width // (self.cell_size + self.spacing))
+        x_offset = rect.x() + self.offset_x
+        y_offset = rect.y() + self.offset_y
         row = 0
         col = 0
-
         for item in self.itemList:
             x = x_offset + col * (self.cell_size + self.spacing)
             if row % 2 == 1:
@@ -232,17 +176,19 @@ class HoneycombLayout(QLayout):
                 row += 1
 
 class HiveView(QWidget):
-    """
-    Widget que exibe uma lista de servidores em formato de colmeia,
-    utilizando o HoneycombLayout para dispor cada HexCellWidget.
-    """
     def __init__(self, servers_info, columns=5, parent=None):
         super().__init__(parent)
-        self.servers_info = servers_info  # Lista de tuplas (server_name, latência_ms)
-        self.columns = columns  # Armazenando o número de colunas
+        self.servers_info = servers_info
+        self.columns = columns
         self.cells = []
         self.layout = HoneycombLayout(cell_size=128, spacing=5, columns=columns)
         self.setLayout(self.layout)
+        self.panning = False
+        self.start_point = QPoint()
+        self.current_offset = QPoint(0, 0)
+        self.start_offset = QPoint(0, 0)
+        self.setMouseTracking(True)
+        self.setCursor(Qt.OpenHandCursor)
         self.buildUI()
 
     def buildUI(self):
@@ -256,73 +202,97 @@ class HiveView(QWidget):
             self.cells[idx].set_data(self.cells[idx].server_name, new_ms)
 
     def update_all(self, new_servers_info):
-        """
-        Atualiza os dados dos servidores.
-        Se a quantidade de servidores for a mesma, reutiliza os widgets existentes;
-        caso contrário, remove todos os widgets e reconstrói a interface.
-        """
         if len(new_servers_info) != len(self.cells):
-            # Remove os widgets antigos e limpa o layout
             for cell in self.cells:
                 cell.setParent(None)
             self.cells = []
-            
-            # Limpa o layout
             while self.layout.count():
                 item = self.layout.takeAt(0)
                 if item:
                     widget = item.widget()
                     if widget:
                         widget.deleteLater()
-                        
-            # Adiciona novos widgets
             for (server_name, ms) in new_servers_info:
                 cell = HexCellWidget(server_name, ms)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
-            # Apenas atualiza os dados sem recriar os widgets
             for i, (server_name, ms) in enumerate(new_servers_info):
                 self.cells[i].set_data(server_name, ms)
-        
-        # Atualiza os servidores armazenados
         self.servers_info = new_servers_info
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.panning = True
+            self.start_point = event.pos()
+            self.start_offset = QPoint(self.current_offset)
+            self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.panning:
+            delta = event.pos() - self.start_point
+            new_offset = self.start_offset + delta
+            self.current_offset = new_offset
+            self.layout.setOffset(self.current_offset.x(), self.current_offset.y())
+            self.update()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.panning:
+            self.panning = False
+            self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y() // 8
+        self.current_offset = QPoint(self.current_offset.x(), self.current_offset.y() + delta)
+        self.layout.setOffset(self.current_offset.x(), self.current_offset.y())
+        self.update()
+        event.accept()
+
     def resizeEvent(self, event):
-        """
-        Trata eventos de redimensionamento garantindo que o layout seja atualizado
-        """
         super().resizeEvent(event)
-        self.layout.invalidate()  # Força o recálculo do layout
+        self.layout.invalidate()
 
     def sizeHint(self):
         return self.layout.sizeHint()
 
+class ScrollableHiveView(QScrollArea):
+    def __init__(self, servers_info, columns=5, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setWidgetResizable(True)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.hive_view = HiveView(servers_info, columns)
+        self.setWidget(self.hive_view)
+
+    def update_all(self, new_servers_info):
+        self.hive_view.update_all(new_servers_info)
+
 if __name__ == "__main__":
     from PyQt5.QtWidgets import QApplication
     app = QApplication([])
-    
-    # Tenta carregar dados de um arquivo JSON; se não existir, usa dados de exemplo
-    data_file = "servers_data.json"
-    if os.path.exists(data_file):
-        with open(data_file, "r") as f:
-            sample_data = json.load(f)
-    else:
-        sample_data = [
-            ("SER-MTZ-VEN19", 20),
-            ("S2", 55),
-            ("S3", 120),
-            ("ServidorDemorado", 300),
-            ("S5", 450),
-            ("S6", 70),
-            ("S7", 170),
-            ("S8", 290),
-            ("S9", 500),
-            ("S10", 800),
-            ("S11", 1000)
-        ]
-    
+
+    sample_data = [
+        ("SER-MTZ-VEN19", 20),
+        ("S2", 22),
+        ("S3", 120),
+        ("ServidorDemorado", 300),
+        ("S5", 450),
+        ("S6", 70),
+        ("S7", 170),
+        ("S8", 290),
+        ("S9", 500),
+        ("S10", 800),
+        ("S11", 1000)
+    ]
+
+    for i in range(12, 50):
+        sample_data.append((f"Servidor-{i}", i * 20 % 1000))
+
     hive_view = HiveView(sample_data, columns=4)
-    hive_view.setWindowTitle("Exemplo HiveView - Honeycomb Layout")
+    hive_view.setWindowTitle("Exemplo HiveView - Arrastar visualização")
     hive_view.show()
     app.exec_()

@@ -1,54 +1,6 @@
 {
     "servers": [
         {
-            "ip": "1.1.1.1",
-            "name": "SER-MTZ-VEN18",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "1.0.0.1",
-            "name": "Cloudflare DNS2",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "8.8.4.4",
-            "name": "Google DNS2",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "9.9.9.9",
-            "name": "Quad9 DNS1",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "149.112.112.112",
-            "name": "Quad9 DNS2",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "208.67.222.222",
-            "name": "OpenDNS1",
-            "folder": "C\u00e2meras",
-            "status": "running"
-        },
-        {
-            "ip": "208.67.220.220",
-            "name": "OpenDNS2",
-            "folder": "",
-            "status": "running"
-        },
-        {
-            "ip": "4.2.2.2",
-            "name": "Level3 DNS2",
-            "folder": "",
-            "status": "running"
-        },
-        {
             "ip": "8.26.56.26",
             "name": "Comodo DNS1",
             "folder": "",
@@ -304,12 +256,6 @@
             "ip": "74.125.200.99",
             "name": "Google-other6",
             "folder": "",
-            "status": "running"
-        },
-        {
-            "name": "Teste",
-            "ip": "172.217.162.227",
-            "folder": "C\u00e2meras",
             "status": "running"
         }
     ],

@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta
 import re
 import logging
+import hashlib
 from hive_view import HiveView
 import mplcursors
 import matplotlib.pyplot as plt
@@ -100,6 +101,26 @@ class MainWindow(QMainWindow):
 
         self.table.cellDoubleClicked.connect(self.open_dashboard)
         self.populate_table()
+
+        self.last_servers_json_hash = self.get_servers_json_hash()
+
+    def reload_servers_data(self):
+        loaded = load_servers()
+        if isinstance(loaded, dict) and "servers" in loaded:
+            self.servers = {server["ip"]: server["name"] for server in loaded["servers"]}
+        else:
+            self.servers = loaded
+        self.offline_count = {ip: 0 for ip in self.servers}
+        self.failure_history = {ip: [] for ip in self.servers}
+        self.refresh_table()
+        self.rebuild_hive_view()
+
+    def get_servers_json_hash(self):
+        try:
+            with open("servers.json", "rb") as f:
+                return hashlib.md5(f.read()).hexdigest()
+        except Exception:
+            return None
 
     def createMainPage(self):
         main_content = QWidget()
@@ -322,8 +343,12 @@ class MainWindow(QMainWindow):
         self.populate_table()
 
     def showHomePage(self):
-        # Retorna à página principal (primeira página no QStackedWidget)
+        current_hash = self.get_servers_json_hash()
+        if current_hash != self.last_servers_json_hash:
+            self.reload_servers_data()
+            self.last_servers_json_hash = current_hash
         self.stack.setCurrentWidget(self.main_content)
+
 
 # As classes ServerDashboard permanecem inalteradas
 
