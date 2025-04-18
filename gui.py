@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QTableWidget, QTableWidgetItem,
-    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy
+    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy, QScrollArea, QFrame
 )
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtCore import Qt, QTimer
@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
             return None
 
     def createMainPage(self):
+        from PyQt5.QtWidgets import QScrollArea, QFrame  # certifique-se de importar no topo
+
         main_content = QWidget()
         main_content_layout = QHBoxLayout(main_content)
         main_content_layout.setContentsMargins(10, 10, 10, 10)
@@ -133,6 +135,7 @@ class MainWindow(QMainWindow):
         left_vbox = QVBoxLayout(left_widget)
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(10)
+
         group_servers = QGroupBox("Servidores Monitorados")
         group_servers_layout = QVBoxLayout(group_servers)
         self.table = QTableWidget()
@@ -143,14 +146,20 @@ class MainWindow(QMainWindow):
         self.table.setAlternatingRowColors(True)
         group_servers_layout.addWidget(self.table)
         left_vbox.addWidget(group_servers)
+
         group_falhas = QGroupBox("Registro de Falhas Offline")
         group_falhas_layout = QVBoxLayout(group_falhas)
-        self.offline_log = QPlainTextEdit()
-        self.offline_log.setReadOnly(True)
-        self.offline_log.setStyleSheet("background-color: #F0F0F0; padding: 5px;")
-        self.offline_log.setPlaceholderText("Nenhuma falha registrada")
-        group_falhas_layout.addWidget(self.offline_log)
+        self.offline_log_area = QScrollArea()
+        self.offline_log_area.setWidgetResizable(True)
+        self.offline_log_area.setStyleSheet("background-color: #F9F9F9; border: none;")
+        self.offline_log_container = QWidget()
+        self.offline_log_layout = QVBoxLayout(self.offline_log_container)
+        self.offline_log_layout.setContentsMargins(10, 10, 10, 10)
+        self.offline_log_layout.setSpacing(10)
+        self.offline_log_area.setWidget(self.offline_log_container)
+        group_falhas_layout.addWidget(self.offline_log_area)
         left_vbox.addWidget(group_falhas)
+
         main_content_layout.addWidget(left_widget, 1)
 
         # Widget direito: HiveView
@@ -223,31 +232,32 @@ class MainWindow(QMainWindow):
         log_lines = []
         updated_hive_data = []
         offline_count = 0
+
         for row in range(self.table.rowCount()):
             ip_item = self.table.item(row, 1)
             ip = ip_item.text()
             server_name = self.table.item(row, 0).text()
             status = status_dict.get(ip, {})
             latency = 0
+
             if status:
                 online = status.get('online', False)
                 latency = status.get('latency', 0)
                 if not online and latency == 0:
                     latency = -1
-                if online:
-                    status_text = "Online"
-                    status_color = QColor("green")
-                else:
-                    status_text = "Offline"
-                    status_color = QColor("red")
+
+                status_text = "Online" if online else "Offline"
+                status_color = QColor("green") if online else QColor("red")
+                if not online:
                     offline_count += 1
+
                 pixmap = create_circle_pixmap(status_color, diameter=12)
                 item = QTableWidgetItem(status_text)
                 item.setIcon(QIcon(pixmap))
                 item.setForeground(status_color)
                 self.table.setItem(row, 2, item)
-                lat_text = str(latency) if latency > 0 else "N/A"
-                self.table.setItem(row, 3, QTableWidgetItem(lat_text))
+                self.table.setItem(row, 3, QTableWidgetItem(str(latency) if latency > 0 else "N/A"))
+
                 if not online:
                     self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -256,10 +266,124 @@ class MainWindow(QMainWindow):
                     log_lines.append(f"[{timestamp}] {server_name} ({ip}): {self.offline_count[ip]} falha(s)")
                 else:
                     self.offline_count[ip] = 0
+
             updated_hive_data.append((server_name, latency))
-        self.offline_log.setPlainText("\n".join(log_lines) if log_lines else "Nenhuma falha registrada")
+
+                        # --- INTERFACE VISUAL DOS LOGS REFINADA COM SCROLL AJUSTADO ---
+        for i in reversed(range(self.offline_log_layout.count())):
+            widget_to_remove = self.offline_log_layout.itemAt(i).widget()
+            if widget_to_remove:
+                widget_to_remove.setParent(None)
+
+        # Scrollbar refinada
+        self.offline_log_area.setStyleSheet("""
+            QScrollBar:vertical {
+                background: transparent;
+                width: 12px;
+                margin: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #BDC3C7;
+                min-height: 20px;
+                border-radius: 6px;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                background: #ECF0F1;
+                height: 12px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #AAB7B8;
+            }
+        """)
+
+        if log_lines:
+            for entry in log_lines:
+                match = re.search(r"\[(.*?)\]", entry)
+                if match:
+                    raw_timestamp = match.group(1)
+                    try:
+                        dt = datetime.strptime(raw_timestamp, "%Y-%m-%d %H:%M:%S")
+                        date_str = dt.strftime("%d/%m/%Y")
+                        time_str = dt.strftime("%H:%M:%S")
+                    except:
+                        date_str = "Data inválida"
+                        time_str = ""
+                else:
+                    raw_timestamp = ""
+                    date_str = "Desconhecida"
+                    time_str = ""
+
+                body = entry.replace(f"[{raw_timestamp}]", "").strip()
+                server_info = body.split(":")[0].strip()
+                fail_info = body.split(":")[1].strip() if ":" in body else "Falha desconhecida"
+
+                # Card Frame
+                frame = QFrame()
+                frame.setStyleSheet("""
+                    QFrame {
+                        background-color: #F4F6F7;
+                        border: 1px solid #D5DBDB;
+                        border-radius: 12px;
+                    }
+                """)
+                layout = QVBoxLayout(frame)
+                layout.setContentsMargins(14, 12, 14, 12)
+                layout.setSpacing(8)
+
+                # Título destacado
+                title = QLabel(server_info)
+                title.setStyleSheet("""
+                    font-size: 17px;
+                    font-weight: bold;
+                    background-color: #2C3E50;
+                    color: white;
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                """)
+
+                # Linha horizontal com falha, data e hora
+                info_container = QWidget()
+                info_layout = QHBoxLayout(info_container)
+                info_layout.setContentsMargins(0, 0, 0, 0)
+                info_layout.setSpacing(10)
+
+                def styled_info(text, icon, color, bold=False):
+                    label = QLabel(f"{icon} {text}")
+                    weight = "bold" if bold else "600"
+                    label.setStyleSheet(f"""
+                        font-size: 12px;
+                        font-weight: {weight};
+                        color: {color};
+                        border: 1px solid #DADADA;
+                        border-radius: 6px;
+                        padding: 3px 8px;
+                        background-color: white;
+                    """)
+                    return label
+
+                fail_label = styled_info(fail_info, "❗", "#E74C3C")
+                date_label = styled_info(date_str, "📅", "#2C3E50", bold=True)
+                time_label = styled_info(time_str, "🕒", "#2C3E50", bold=True)
+
+                info_layout.addWidget(fail_label)
+                info_layout.addWidget(date_label)
+                info_layout.addWidget(time_label)
+                info_layout.addStretch()
+
+                # Montagem
+                layout.addWidget(title)
+                layout.addWidget(info_container)
+
+                self.offline_log_layout.addWidget(frame)
+        else:
+            placeholder = QLabel("Nenhuma falha registrada")
+            placeholder.setStyleSheet("color: gray; font-style: italic; padding: 8px;")
+            self.offline_log_layout.addWidget(placeholder)
+
         if len(updated_hive_data) == len(self.hive_view.cells):
             self.hive_view.update_all(updated_hive_data)
+
         if offline_count > 0:
             if not self.blink_timer.isActive():
                 self.blink_timer.start()
@@ -267,10 +391,12 @@ class MainWindow(QMainWindow):
             if self.blink_timer.isActive():
                 self.blink_timer.stop()
                 self.restoreOfflineColors()
+
         if self.isMinimized() and offline_count > 0:
             self.startBeepLoop(offline_count)
         else:
             self.stopBeepLoop()
+
 
     def toggleBlink(self):
         self.blink_state = not self.blink_state

@@ -1,16 +1,10 @@
 {
     "servers": [
         {
-            "ip": "8.26.56.26",
-            "name": "Comodo DNS1",
-            "folder": "",
-            "status": "running"
-        },
-        {
             "ip": "64.6.64.6",
             "name": "VeriSign DNS1",
             "folder": "",
-            "status": "running"
+            "status": "Pausado pelo usu\u00e1rio"
         },
         {
             "ip": "64.6.65.6",
@@ -81,12 +75,6 @@
         {
             "ip": "8.35.35.35",
             "name": "Google Anycast2",
-            "folder": "",
-            "status": "running"
-        },
-        {
-            "ip": "23.253.58.227",
-            "name": "Rackspace1",
             "folder": "",
             "status": "running"
         },
@@ -255,6 +243,12 @@
         {
             "ip": "74.125.200.99",
             "name": "Google-other6",
+            "folder": "",
+            "status": "running"
+        },
+        {
+            "name": "Google.com",
+            "ip": "172.217.29.163",
             "folder": "",
             "status": "running"
         }
