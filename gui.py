@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+        central_widget.setStyleSheet("background-color: #EFF2EF;")
+
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         # Instancia a NavigationBar
