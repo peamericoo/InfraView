@@ -33,16 +33,6 @@ class EditServersWidget(QWidget):
         self.tabs.addTab(self.servers_page, "Editar Servidores")
         self.tabs.addTab(self.folders_page, "Editar Pastas")
 
-        # Botão para retornar à página inicial
-        back_button = QPushButton("Voltar")
-        back_button.clicked.connect(self.goBack)
-        layout.addWidget(back_button)
-
-    def goBack(self):
-        # Retorna à página inicial
-        if self.parent() and hasattr(self.parent(), "stack"):
-            self.parent().stack.setCurrentIndex(0)
-
     def loadData(self):
         if os.path.exists(self.data_file):
             try:
@@ -278,11 +268,17 @@ class EditServersWidget(QWidget):
         top_layout.addWidget(color_btn)
         add_folder_layout.addLayout(top_layout)
         # Lista de servidores para associar à pasta
-        self.serverList_addFolder = QListWidget(self)
-        self.serverList_addFolder.setSelectionMode(self.serverList_addFolder.MultiSelection)
+        self.serverList_all = QListWidget(self)
+        self.serverList_all.setSelectionMode(QListWidget.MultiSelection)
+
+        self.serverList_unassigned = QListWidget(self)
+        self.serverList_unassigned.setSelectionMode(QListWidget.MultiSelection)
         self.refreshServerListForFolder()
-        add_folder_layout.addWidget(QLabel("Selecione os servidores para esta pasta:", self))
-        add_folder_layout.addWidget(self.serverList_addFolder)
+        add_folder_layout.addWidget(QLabel("Todos os servidores:", self))
+        add_folder_layout.addWidget(self.serverList_all)
+        add_folder_layout.addWidget(QLabel("Servidores não atribuídos:", self))
+        add_folder_layout.addWidget(self.serverList_unassigned)
+
         add_folder_btn = QPushButton("Criar Pasta", self)
         add_folder_btn.clicked.connect(self.onAddFolder)
         add_folder_layout.addWidget(add_folder_btn)
@@ -322,10 +318,15 @@ class EditServersWidget(QWidget):
         return page
 
     def refreshServerListForFolder(self):
-        self.serverList_addFolder.clear()
+        self.serverList_all.clear()
+        self.serverList_unassigned.clear()
         for s in self.servers_data:
-            item = QListWidgetItem(s["name"])
-            self.serverList_addFolder.addItem(item)
+            item_all = QListWidgetItem(s["name"])
+            self.serverList_all.addItem(item_all)
+            if not s.get("folder"):
+                item_unassigned = QListWidgetItem(s["name"])
+                self.serverList_unassigned.addItem(item_unassigned)
+
 
     def refreshFolderList(self):
         self.folderList_edit.clear()
@@ -344,17 +345,36 @@ class EditServersWidget(QWidget):
         if not folder_name:
             QMessageBox.warning(self, "Atenção", "O nome da pasta é obrigatório!")
             return
+        if not self.folderColor_add or self.folderColor_add == "#000000":
+            QMessageBox.warning(self, "Atenção", "Você deve escolher uma cor para a pasta!")
+            return
+
+        selected_items = self.serverList_unassigned.selectedItems()
+        if not selected_items:
+            selected_items = self.serverList_all.selectedItems()
+            if not selected_items:
+                QMessageBox.warning(self, "Atenção", "Você deve selecionar pelo menos um servidor para vincular à pasta.")
+                return
+
+
+        selected_names = [item.text() for item in selected_items]
+
         new_folder = {
             "name": folder_name,
             "color": self.folderColor_add
         }
         self.folders_data.append(new_folder)
-        # Atualiza os servidores selecionados para associar à pasta
-        selected_items = self.serverList_addFolder.selectedItems()
-        selected_names = [item.text() for item in selected_items]
+
         for s in self.servers_data:
             if s["name"] in selected_names:
+                if s.get("folder") and s["folder"] != folder_name:
+                    resp = QMessageBox.question(self, "Aviso",
+                        f"O servidor '{s['name']}' já pertence à pasta '{s['folder']}'. Deseja movê-lo para '{folder_name}'?",
+                        QMessageBox.Yes | QMessageBox.No)
+                    if resp != QMessageBox.Yes:
+                        continue
                 s["folder"] = folder_name
+
         self.saveData()
         self.folderNameInput_add.clear()
         self.folderColorLabel_add.setText("Cor: #000000")

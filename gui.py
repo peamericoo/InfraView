@@ -123,7 +123,7 @@ class MainWindow(QMainWindow):
             return None
 
     def createMainPage(self):
-        from PyQt5.QtWidgets import QScrollArea, QFrame  # certifique-se de importar no topo
+        from PyQt5.QtWidgets import QScrollArea, QFrame
 
         main_content = QWidget()
         main_content_layout = QHBoxLayout(main_content)
@@ -166,12 +166,35 @@ class MainWindow(QMainWindow):
         self.group_hive = QGroupBox("Visão Colmeia")
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
-        servers_data = [(self.servers[ip], 0) for ip in self.servers]
+
+        # --- NOVA LÓGICA COM CORES DE PASTA ---
+        try:
+            with open("servers.json", "r") as f:
+                data = json.load(f)
+        except Exception:
+            data = {"servers": [], "folders": []}
+
+        folder_colors = {
+            f["name"]: f.get("color", "#000000")
+            for f in data.get("folders", [])
+        }
+
+        servers_data = []
+        for s in data.get("servers", []):
+            name = s["name"]
+            ip = s["ip"]
+            folder = s.get("folder", "")
+            color = folder_colors.get(folder, "#000000")
+            servers_data.append((name, ip, 0, folder, color))
+
+        servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))  # ordena por nome da pasta
+
         self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
         main_content_layout.addWidget(self.group_hive, 1)
 
         return main_content
+
 
     def showEditServers(self):
         # Alterna para a tela de edição de servidores
@@ -218,7 +241,31 @@ class MainWindow(QMainWindow):
             if layout is not None and self.hive_view is not None:
                 layout.removeWidget(self.hive_view)
                 self.hive_view.deleteLater()
-            servers_data = [(self.servers[ip], 0) for ip in self.servers]
+
+            # --- NOVA LÓGICA COM CORES DE PASTA ---
+            try:
+                with open("servers.json", "r") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {"servers": [], "folders": []}
+
+            # Cria dicionário {pasta: cor}
+            folder_colors = {
+                f["name"]: f.get("color", "#000000")
+                for f in data.get("folders", [])
+            }
+
+            servers_data = []
+            for s in data.get("servers", []):
+                name = s["name"]
+                ip = s["ip"]
+                folder = s.get("folder", "")
+                color = folder_colors.get(folder, "#000000")
+                servers_data.append((name, ip, 0, folder, color))
+
+            # Ordena por nome da pasta (agrupamento visual)
+            servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
+
             self.hive_view = HiveView(servers_data, columns=4)
             layout.addWidget(self.hive_view)
 
@@ -266,8 +313,22 @@ class MainWindow(QMainWindow):
                     log_lines.append(f"[{timestamp}] {server_name} ({ip}): {self.offline_count[ip]} falha(s)")
                 else:
                     self.offline_count[ip] = 0
+            try:
+                with open("servers.json", "r") as f:
+                    data = json.load(f)
+                folders = {f["name"]: f.get("color", "#000000") for f in data.get("folders", [])}
+                servers_lookup = {
+                    s["ip"]: (s["name"], s["ip"], s.get("folder", ""), folders.get(s.get("folder", ""), "#000000"))
+                    for s in data.get("servers", [])
+                }
+            except:
+                servers_lookup = {}
 
-            updated_hive_data.append((server_name, latency))
+            updated_hive_data.clear()
+            for ip, (name, ip, folder, color) in servers_lookup.items():
+                latency = status_dict.get(ip, {}).get("latency", 0)
+                updated_hive_data.append((name, ip, latency, folder, color))
+
 
                         # --- INTERFACE VISUAL DOS LOGS REFINADA COM SCROLL AJUSTADO ---
         for i in reversed(range(self.offline_log_layout.count())):

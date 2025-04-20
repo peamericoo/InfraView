@@ -27,14 +27,14 @@ def get_contrasting_text_color(bg_color):
     return QColor(255, 255, 255) if luminance < 0.5 else QColor(0, 0, 0)
 
 class HexCellWidget(QWidget):
-    def __init__(self, server_name, latency_ms=0.0, parent=None):
+    def __init__(self, server_name, latency_ms=0.0, folder_color="#000000", parent=None):
         super().__init__(parent)
         self.server_name = server_name
         self.latency_ms = latency_ms
-        self.min_ms = 0
-        self.max_ms = 1000
+        self.folder_color = QColor(folder_color)
         self.setMinimumSize(QSize(80, 80))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         self.font_db = QFontDatabase()
         self.has_open_sans = "Open Sans" in self.font_db.families()
         if self.has_open_sans:
@@ -58,10 +58,12 @@ class HexCellWidget(QWidget):
         if w <= 2 or h <= 2:
             return
 
-        side = max(1.0, min(w, h) * 0.45)
+        base_side = max(1.0, min(w, h) * 0.45)
+        padding_factor = 1.09  # leve expansão das pontas, ajustável
+        side = base_side * padding_factor
+
         cx = w / 2
         cy = h / 2
-
         points = []
         for i in range(6):
             angle_deg = 60 * i - 30
@@ -71,31 +73,33 @@ class HexCellWidget(QWidget):
             points.append((x, y))
         poly = QPolygonF([QPointF(px, py) for (px, py) in points])
 
+        # --- Determina cor interna do hexágono ---
         if self.latency_ms < 0:
             bg_color = QColor(255, 0, 0)
+        elif self.latency_ms <= 100:
+            bg_color = lerp_color(self.latency_ms, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
+        elif self.latency_ms <= 300:
+            bg_color = lerp_color(self.latency_ms, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
+        elif self.latency_ms <= 600:
+            bg_color = lerp_color(self.latency_ms, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
+        elif self.latency_ms <= 1000:
+            bg_color = lerp_color(self.latency_ms, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
         else:
-            if self.latency_ms <= 100:
-                bg_color = lerp_color(self.latency_ms, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
-            elif self.latency_ms <= 300:
-                bg_color = lerp_color(self.latency_ms, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
-            elif self.latency_ms <= 600:
-                bg_color = lerp_color(self.latency_ms, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
-            elif self.latency_ms <= 1000:
-                bg_color = lerp_color(self.latency_ms, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
-            else:
-                bg_color = QColor(255, 0, 0)
+            bg_color = QColor(255, 0, 0)
 
-        painter.setPen(QPen(Qt.black, 2))
+        # --- Contorno na cor da pasta ---
+        painter.setPen(QPen(self.folder_color, 4))
         painter.setBrush(QBrush(bg_color))
         painter.drawPolygon(poly)
 
+        # --- Nome do servidor ---
         painter.setFont(self.font_name)
-        fm = QFontMetrics(self.font_name)
         display_name = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
         rect_name = QRect(0, 0, w, int(h * 0.65))
         painter.setPen(QColor("black"))
         painter.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, display_name)
 
+        # --- Latência ---
         if self.latency_ms < 0:
             ms_text_color = QColor("white")
         elif self.latency_ms < 120:
@@ -110,7 +114,6 @@ class HexCellWidget(QWidget):
         ms_text = f"{int(self.latency_ms) if self.latency_ms >= 0 else 0} ms"
         rect_ms = QRect(0, int(h * 0.28), w, int(h * 0.55))
         painter.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, ms_text)
-
 class HoneycombLayout(QLayout):
     def __init__(self, parent=None, cell_size=100, spacing=5, columns=None):
         super().__init__(parent)
@@ -167,7 +170,8 @@ class HoneycombLayout(QLayout):
         for item in self.itemList:
             x = x_offset + col * (self.cell_size + self.spacing)
             if row % 2 == 1:
-                x += self.cell_size // 2
+                x += (self.cell_size + self.spacing) // 2
+
             y = y_offset + row * (int(self.cell_size * 0.75) + self.spacing)
             item.widget().setGeometry(QRect(x, y, self.cell_size, self.cell_size))
             col += 1
@@ -192,10 +196,11 @@ class HiveView(QWidget):
         self.buildUI()
 
     def buildUI(self):
-        for (server_name, ms) in self.servers_info:
-            cell = HexCellWidget(server_name, ms)
+        for (server_name, ip, ms, folder, folder_color) in self.servers_info:
+            cell = HexCellWidget(server_name, ms, folder_color)
             self.cells.append(cell)
             self.layout.addWidget(cell)
+
 
     def update_latency(self, idx, new_ms):
         if 0 <= idx < len(self.cells):
@@ -212,12 +217,12 @@ class HiveView(QWidget):
                     widget = item.widget()
                     if widget:
                         widget.deleteLater()
-            for (server_name, ms) in new_servers_info:
-                cell = HexCellWidget(server_name, ms)
+            for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+                cell = HexCellWidget(server_name, ms, folder_color)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
-            for i, (server_name, ms) in enumerate(new_servers_info):
+            for i, (server_name, ip, ms, folder, folder_color) in enumerate(new_servers_info):
                 self.cells[i].set_data(server_name, ms)
         self.servers_info = new_servers_info
 
@@ -269,7 +274,25 @@ class ScrollableHiveView(QScrollArea):
         self.setWidget(self.hive_view)
 
     def update_all(self, new_servers_info):
-        self.hive_view.update_all(new_servers_info)
+        if len(new_servers_info) != len(self.cells):
+            for cell in self.cells:
+                cell.setParent(None)
+            self.cells = []
+            while self.layout.count():
+                item = self.layout.takeAt(0)
+                if item:
+                    widget = item.widget()
+                    if widget:
+                        widget.deleteLater()
+            for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+                cell = HexCellWidget(server_name, ms, folder_color)
+                self.cells.append(cell)
+                self.layout.addWidget(cell)
+        else:
+            for i, (server_name, ip, ms, folder, folder_color) in enumerate(new_servers_info):
+                self.cells[i].set_data(server_name, ms)
+        self.servers_info = new_servers_info
+
 
 if __name__ == "__main__":
     from PyQt5.QtWidgets import QApplication
