@@ -88,7 +88,9 @@ class HexCellWidget(QWidget):
             bg_color = QColor(255, 0, 0)
 
         # --- Contorno na cor da pasta ---
-        painter.setPen(QPen(self.folder_color, 4))
+        pen_color = QColor("#FFFFFF") if self.folder_color.name() == "#000000" else self.folder_color
+        painter.setPen(QPen(pen_color, 4))
+
         painter.setBrush(QBrush(bg_color))
         painter.drawPolygon(poly)
 

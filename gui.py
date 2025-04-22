@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy, QScrollArea, QFrame
 )
 from PyQt5.QtMultimedia import QSound
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QColor, QFont, QPainter, QBrush, QPen
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from monitor import MonitorThread
@@ -44,12 +44,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("InfraView - Monitor de Servidores")
         self.resize(1460, 930)
-        # Carrega os dados e converte o JSON para o formato {ip: nome}
+
         loaded = load_servers()
         if isinstance(loaded, dict) and "servers" in loaded:
             self.servers = {server["ip"]: server["name"] for server in loaded["servers"]}
         else:
-            self.servers = loaded  # fallback se não estiver no novo formato
+            self.servers = loaded
 
         self.offline_count = {ip: 0 for ip in self.servers}
         self.failure_history = {ip: [] for ip in self.servers}
@@ -60,7 +60,6 @@ class MainWindow(QMainWindow):
         self.blink_timer = QTimer(self)
         self.blink_timer.setInterval(500)
         self.blink_timer.timeout.connect(self.toggleBlink)
-        self.blink_state = False
 
         self.sound_timer = QTimer(self)
         self.sound_timer.setSingleShot(True)
@@ -71,40 +70,112 @@ class MainWindow(QMainWindow):
         self.beepCount = 1
         self.beepWait = 7000
 
-        # Layout principal: cria um HBox com a sidebar à esquerda
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-        central_widget.setStyleSheet("background-color: #EFF2EF;")
 
+        main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Instancia a NavigationBar
+        # 🖤 MODO ESCURO APLICADO
+        central_widget.setStyleSheet("""
+            QWidget {
+                background-color: #1E1E1E;
+                color: #CCCCCC;
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 10pt;
+            }
+            QGroupBox {
+                border: 1px solid #3C3C3C;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding: 10px;
+                background-color: #252526;
+            }                                     
+            QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top center;
+            padding: 4px 12px;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #3A3A3A, stop:1 #2D2D30);
+            color: white;
+            border-radius: 5px;
+        }
+            QLineEdit, QComboBox, QListWidget {
+                background-color: #2D2D30;
+                border: 1px solid #3C3C3C;
+                border-radius: 5px;
+                padding: 6px;
+                color: #FFFFFF;
+            }
+            QPushButton {
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-weight: bold;
+            }
+            QPushButton#add {
+                background-color: #27AE60;
+                color: white;
+            }
+            QPushButton#add:hover {
+                background-color: #1E8449;
+            }
+            QPushButton#remove {
+                background-color: #C0392B;
+                color: white;
+            }
+            QPushButton#remove:hover {
+                background-color: #922B21;
+            }
+            QPushButton#edit {
+                background-color: #F39C12;
+                color: white;
+            }
+            QPushButton#edit:hover {
+                background-color: #D68910;
+            }
+            QScrollBar:vertical {
+                background: transparent;
+                width: 10px;
+                margin: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #5C5C5C;
+                min-height: 20px;
+                border-radius: 6px;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                background: #3C3C3C;
+                height: 12px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #888;
+            }
+        """)
+
         self.nav_bar = NavigationBar(self)
         self.nav_bar.addServerClicked.connect(self.add_server)
-        self.nav_bar.btn_add.clicked.connect(self.showEditServers)  # Conecta o botão de adicionar à tela de edição
-
-        # Conectar o sinal homeClicked ao método showHomePage
+        self.nav_bar.btn_add.clicked.connect(self.showEditServers)
         self.nav_bar.homeClicked.connect(self.showHomePage)
-
         main_layout.addWidget(self.nav_bar, 0)
 
-        # Cria o QStackedWidget para alternar entre as telas
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack, 1)
 
-        # Página inicial
         self.main_content = self.createMainPage()
         self.stack.addWidget(self.main_content)
 
-        # Tela de edição de servidores
         self.edit_servers_widget = EditServersWidget(self)
         self.stack.addWidget(self.edit_servers_widget)
 
-        self.table.cellDoubleClicked.connect(self.open_dashboard)
-        self.populate_table()
 
         self.last_servers_json_hash = self.get_servers_json_hash()
+
+    def handleCardDoubleClick(self, ip):
+        for row, (srv_ip, name) in enumerate(self.servers.items()):
+            if srv_ip == ip:
+                self.open_dashboard(row, 0)
+                break
 
     def reload_servers_data(self):
         loaded = load_servers()
@@ -114,7 +185,6 @@ class MainWindow(QMainWindow):
             self.servers = loaded
         self.offline_count = {ip: 0 for ip in self.servers}
         self.failure_history = {ip: [] for ip in self.servers}
-        self.refresh_table()
         self.rebuild_hive_view()
 
     def get_servers_json_hash(self):
@@ -140,22 +210,27 @@ class MainWindow(QMainWindow):
 
         group_servers = QGroupBox("Servidores Monitorados")
         group_servers_layout = QVBoxLayout(group_servers)
-        self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Nome", "IP", "Status", "Latência (ms)"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setAlternatingRowColors(True)
-        group_servers_layout.addWidget(self.table)
+        self.server_list = ServerListWidget(self)
+
+        self.server_scroll = QScrollArea()
+        self.server_scroll.setWidgetResizable(True)
+        self.server_scroll.setFrameShape(QFrame.NoFrame)
+        self.server_scroll.setStyleSheet("background-color: transparent;")
+        self.server_scroll.setWidget(self.server_list)
+
+        group_servers_layout.addWidget(self.server_scroll)
+
+
         left_vbox.addWidget(group_servers)
 
         group_falhas = QGroupBox("Registro de Falhas Offline")
         group_falhas_layout = QVBoxLayout(group_falhas)
         self.offline_log_area = QScrollArea()
         self.offline_log_area.setWidgetResizable(True)
-        self.offline_log_area.setStyleSheet("background-color: #F9F9F9; border: none;")
+        self.offline_log_area.setStyleSheet("background-color: #1E1E1E; border: none;")
         self.offline_log_container = QWidget()
         self.offline_log_layout = QVBoxLayout(self.offline_log_container)
+        self.offline_log_container.setStyleSheet("background-color: #252526;")
         self.offline_log_layout.setContentsMargins(10, 10, 10, 10)
         self.offline_log_layout.setSpacing(10)
         self.offline_log_area.setWidget(self.offline_log_container)
@@ -214,28 +289,22 @@ class MainWindow(QMainWindow):
                 self.offline_count[ip] = 0
                 self.failure_history[ip] = []
                 save_servers(self.servers)
-                self.refresh_table()
                 if not self.monitor_paused and self.monitor_thread is not None:
                     self.monitor_thread.servers = list(self.servers.keys())
                 self.rebuild_hive_view()
 
-    def open_dashboard(self, row, column):
-        if column != 0:
-            return
-        name = self.table.item(row, 0).text()
-        ip = self.table.item(row, 1).text()
-        history = self.failure_history.get(ip, [])
-        dashboard = ServerDashboard(name, ip, history)
-        dashboard.show()
-        self.dashboard_windows.append(dashboard)
+    def open_dashboard(self, row, column=0):
+        try:
+            ip = list(self.servers.keys())[row]
+            name = self.servers[ip]
+            history = self.failure_history.get(ip, [])
+            dashboard = ServerDashboard(name, ip, history)
+            dashboard.show()
+            self.dashboard_windows.append(dashboard)
+        except IndexError:
+            print("Erro ao abrir dashboard: índice fora do intervalo.")
 
-    def populate_table(self):
-        self.table.setRowCount(len(self.servers))
-        for row, (ip, name) in enumerate(self.servers.items()):
-            self.table.setItem(row, 0, QTableWidgetItem(name))
-            self.table.setItem(row, 1, QTableWidgetItem(ip))
-            self.table.setItem(row, 2, QTableWidgetItem("Desconhecido"))
-            self.table.setItem(row, 3, QTableWidgetItem("N/A"))
+
 
     def rebuild_hive_view(self):
         if self.group_hive is not None:
@@ -281,84 +350,43 @@ class MainWindow(QMainWindow):
         log_lines = []
         updated_hive_data = []
         offline_count = 0
+        self.server_list.update_servers(status_dict, self.servers)
 
-        for row in range(self.table.rowCount()):
-            ip_item = self.table.item(row, 1)
-            ip = ip_item.text()
-            server_name = self.table.item(row, 0).text()
+        for ip, name in self.servers.items():
             status = status_dict.get(ip, {})
-            latency = 0
+            online = status.get("online", False)
+            latency = status.get("latency", 0)
 
-            if status:
-                online = status.get('online', False)
-                latency = status.get('latency', 0)
-                if not online and latency == 0:
-                    latency = -1
+            if not online:
+                self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                entry = f"[{timestamp}] Falha: {self.offline_count[ip]} consecutivas"
+                self.failure_history[ip].append(entry)
+                log_lines.append(f"[{timestamp}] {name} ({ip}): {self.offline_count[ip]} falha(s)")
+                offline_count += 1
+            else:
+                self.offline_count[ip] = 0
 
-                status_text = "Online" if online else "Offline"
-                status_color = QColor("green") if online else QColor("red")
-                if not online:
-                    offline_count += 1
+        try:
+            with open("servers.json", "r") as f:
+                data = json.load(f)
+            folders = {f["name"]: f.get("color", "#000000") for f in data.get("folders", [])}
+            servers_lookup = {
+                s["ip"]: (s["name"], s["ip"], s.get("folder", ""), folders.get(s.get("folder", ""), "#000000"))
+                for s in data.get("servers", [])
+            }
+        except:
+            servers_lookup = {}
 
-                pixmap = create_circle_pixmap(status_color, diameter=12)
-                item = QTableWidgetItem(status_text)
-                item.setIcon(QIcon(pixmap))
-                item.setForeground(status_color)
-                self.table.setItem(row, 2, item)
-                self.table.setItem(row, 3, QTableWidgetItem(str(latency) if latency > 0 else "N/A"))
+        updated_hive_data.clear()
+        for ip, (name, ip, folder, color) in servers_lookup.items():
+            latency = status_dict.get(ip, {}).get("latency", 0)
+            updated_hive_data.append((name, ip, latency, folder, color))
 
-                if not online:
-                    self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    entry = f"[{timestamp}] Falha: {self.offline_count[ip]} consecutivas"
-                    self.failure_history[ip].append(entry)
-                    log_lines.append(f"[{timestamp}] {server_name} ({ip}): {self.offline_count[ip]} falha(s)")
-                else:
-                    self.offline_count[ip] = 0
-            try:
-                with open("servers.json", "r") as f:
-                    data = json.load(f)
-                folders = {f["name"]: f.get("color", "#000000") for f in data.get("folders", [])}
-                servers_lookup = {
-                    s["ip"]: (s["name"], s["ip"], s.get("folder", ""), folders.get(s.get("folder", ""), "#000000"))
-                    for s in data.get("servers", [])
-                }
-            except:
-                servers_lookup = {}
-
-            updated_hive_data.clear()
-            for ip, (name, ip, folder, color) in servers_lookup.items():
-                latency = status_dict.get(ip, {}).get("latency", 0)
-                updated_hive_data.append((name, ip, latency, folder, color))
-
-
-                        # --- INTERFACE VISUAL DOS LOGS REFINADA COM SCROLL AJUSTADO ---
         for i in reversed(range(self.offline_log_layout.count())):
             widget_to_remove = self.offline_log_layout.itemAt(i).widget()
             if widget_to_remove:
                 widget_to_remove.setParent(None)
-
-        # Scrollbar refinada
-        self.offline_log_area.setStyleSheet("""
-            QScrollBar:vertical {
-                background: transparent;
-                width: 12px;
-                margin: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #BDC3C7;
-                min-height: 20px;
-                border-radius: 6px;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                background: #ECF0F1;
-                height: 12px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #AAB7B8;
-            }
-        """)
 
         if log_lines:
             for entry in log_lines:
@@ -381,20 +409,18 @@ class MainWindow(QMainWindow):
                 server_info = body.split(":")[0].strip()
                 fail_info = body.split(":")[1].strip() if ":" in body else "Falha desconhecida"
 
-                # Card Frame
                 frame = QFrame()
                 frame.setStyleSheet("""
-                    QFrame {
-                        background-color: #F4F6F7;
-                        border: 1px solid #D5DBDB;
-                        border-radius: 12px;
-                    }
+                QFrame {
+                    background-color: #2D2D30;
+                    border: 1px solid #3C3C3C;
+                    border-radius: 12px;
+                }
                 """)
                 layout = QVBoxLayout(frame)
                 layout.setContentsMargins(14, 12, 14, 12)
                 layout.setSpacing(8)
 
-                # Título destacado
                 title = QLabel(server_info)
                 title.setStyleSheet("""
                     font-size: 17px;
@@ -405,9 +431,9 @@ class MainWindow(QMainWindow):
                     border-radius: 6px;
                 """)
 
-                # Linha horizontal com falha, data e hora
                 info_container = QWidget()
                 info_layout = QHBoxLayout(info_container)
+                info_container.setStyleSheet("background-color: #2D2D30;")
                 info_layout.setContentsMargins(0, 0, 0, 0)
                 info_layout.setSpacing(10)
 
@@ -418,23 +444,23 @@ class MainWindow(QMainWindow):
                         font-size: 12px;
                         font-weight: {weight};
                         color: {color};
-                        border: 1px solid #DADADA;
+                        border: 1px solid #3C3C3C;
                         border-radius: 6px;
                         padding: 3px 8px;
-                        background-color: white;
+                        background-color: #1E1E1E;
                     """)
                     return label
 
                 fail_label = styled_info(fail_info, "❗", "#E74C3C")
-                date_label = styled_info(date_str, "📅", "#2C3E50", bold=True)
-                time_label = styled_info(time_str, "🕒", "#2C3E50", bold=True)
+                date_label = styled_info(date_str, "📅", "#FFFFFF", bold=True)
+                time_label = styled_info(time_str, "🕒", "#FFFFFF", bold=True)
+
 
                 info_layout.addWidget(fail_label)
                 info_layout.addWidget(date_label)
                 info_layout.addWidget(time_label)
                 info_layout.addStretch()
 
-                # Montagem
                 layout.addWidget(title)
                 layout.addWidget(info_container)
 
@@ -447,39 +473,26 @@ class MainWindow(QMainWindow):
         if len(updated_hive_data) == len(self.hive_view.cells):
             self.hive_view.update_all(updated_hive_data)
 
-        if offline_count > 0:
-            if not self.blink_timer.isActive():
-                self.blink_timer.start()
-        else:
-            if self.blink_timer.isActive():
-                self.blink_timer.stop()
-                self.restoreOfflineColors()
+        if offline_count > 0 and not self.blink_timer.isActive():
+            self.blink_timer.start()
+        elif offline_count == 0 and self.blink_timer.isActive():
+            self.blink_timer.stop()
 
         if self.isMinimized() and offline_count > 0:
             self.startBeepLoop(offline_count)
         else:
             self.stopBeepLoop()
 
-
+    
+    # ------------------------------------------------------------------ #
     def toggleBlink(self):
-        self.blink_state = not self.blink_state
-        for row in range(self.table.rowCount()):
-            status_item = self.table.item(row, 2)
-            if status_item and status_item.text() == "Offline":
-                if self.blink_state:
-                    status_item.setForeground(QColor("red"))
-                    status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"), 12)))
-                else:
-                    transparent = QColor(255, 0, 0, 0)
-                    status_item.setForeground(transparent)
-                    status_item.setIcon(QIcon(create_circle_pixmap(transparent, 12)))
+        """
+        Percorre todos os cards e pede para piscarem se estiverem offline.
+        """
+        for card in self.server_list.cards.values():
+            card.blink()
 
-    def restoreOfflineColors(self):
-        for row in range(self.table.rowCount()):
-            status_item = self.table.item(row, 2)
-            if status_item and status_item.text() == "Offline":
-                status_item.setForeground(QColor("red"))
-                status_item.setIcon(QIcon(create_circle_pixmap(QColor("red"), 12)))
+
 
     def startBeepLoop(self, offline_count):
         if not self.beep_active:
@@ -503,9 +516,10 @@ class MainWindow(QMainWindow):
     def handleSoundLoop(self):
         if not self.beep_active:
             return
-        if not self.isMinimized() or not self.anyOffline():
+        if not self.isMinimized():
             self.stopBeepLoop()
             return
+
         if self.beep_phase < self.beepCount:
             self.playSound()
             self.beep_phase += 1
@@ -514,22 +528,11 @@ class MainWindow(QMainWindow):
             self.beep_phase = 0
             self.sound_timer.start(self.beepWait)
 
-    def anyOffline(self) -> bool:
-        for row in range(self.table.rowCount()):
-            status_item = self.table.item(row, 2)
-            if status_item and status_item.text() == "Offline":
-                return True
-        return False
-
     def playSound(self):
         if os.path.exists(OFFLINE_SOUND_PATH):
             QSound.play(OFFLINE_SOUND_PATH)
         else:
             print("Arquivo de som não encontrado:", OFFLINE_SOUND_PATH)
-
-    def refresh_table(self):
-        self.table.setRowCount(0)
-        self.populate_table()
 
     def showHomePage(self):
         current_hash = self.get_servers_json_hash()
@@ -689,6 +692,147 @@ class ServerDashboard(QMainWindow):
         interval_time = self._x_sorted[ind].strftime("%H:%M")
         details = self._tooltips_sorted[ind]
         self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
+
+class ServerCard(QWidget):
+    card_clicked = pyqtSignal(str)
+    """
+    Card único de servidor:
+      • Colunas com largura fixa (IP, latência);
+      • Nome se expande (ou elide) sem reduzir fonte;
+      • Duplo‑clique em QUALQUER parte do card abre o dashboard;
+      • Guarda estado online/offline – usado pelo pisca‑pisca.
+    """
+    def __init__(self, name, ip, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.ip = ip
+        self.online = True          # ← novo
+        self.blink_state = False    # ← novo
+
+        self.setFixedHeight(46)
+        self.setStyleSheet("""
+            QWidget { background-color:#2D2D30;
+                      border:1px solid #3C3C3C;
+                      border-radius:8px; }
+        """)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(12, 4, 12, 4)
+        lay.setSpacing(16)
+
+        # • status dot
+        self.status_dot = QLabel()
+        self.status_dot.setFixedSize(12, 12)
+        self.status_dot.setStyleSheet("border-radius:6px; background-color:gray;")
+        lay.addWidget(self.status_dot)
+
+        # • nome (expansível + elide)
+        self.name_label = QLabel(name)
+        self.name_label.setStyleSheet("font-weight:bold; color:white;")
+        self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.name_label.setMinimumWidth(100)   # evita encolher demais
+        self.name_label.setMaximumWidth(240)
+        self.name_label.setTextInteractionFlags(Qt.NoTextInteraction)
+        lay.addWidget(self.name_label, 2)
+        # permite ao ServerCard interceptar o double‑click do label
+        self.name_label.installEventFilter(self)
+
+
+        # • IP (fixo)
+        self.ip_label = QLabel(ip)
+        self.ip_label.setStyleSheet("color:#BBBBBB;")
+        self.ip_label.setFixedWidth(120)
+        self.ip_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        lay.addWidget(self.ip_label)
+
+        # • latência (fixo, alinhado à direita)
+        self.latency_label = QLabel("-- ms")
+        self.latency_label.setStyleSheet("color:#AAAAAA;")
+        self.latency_label.setFixedWidth(64)
+        self.latency_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lay.addWidget(self.latency_label)
+
+    # ------------------------------------------------------------ #
+    def set_status(self, online: bool, latency: int):
+        self.online = online
+        color = "#2ECC71" if online else "#E74C3C"
+        self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{color};")
+        self.latency_label.setText(f"{latency} ms" if latency > 0 else "N/A")
+        
+        # ------------------------------------------------------------ #
+    def eventFilter(self, obj, ev):
+        """
+        Captura duplo‑clique no label de nome e despacha para o card,
+        mas devolve False para que o Qt ainda selecione o texto normalmente.
+        """
+        if obj is self.name_label and ev.type() == QEvent.MouseButtonDblClick:
+            # Reaproveita a lógica padrão do card
+            self.mouseDoubleClickEvent(ev)
+            return False          # deixa o QLabel continuar (texto será selecionado)
+        return super().eventFilter(obj, ev)
+
+    # --- piscar: alterna ponto entre vermelho e transparente ---- #
+    def blink(self):
+        if self.online:
+            return
+        self.blink_state = not self.blink_state
+        color = "#E74C3C" if self.blink_state else "transparent"
+        self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{color};")
+
+    # --- duplo‑clique em QUALQUER lugar do card ----------------- #
+    def mouseDoubleClickEvent(self, ev):
+        self.card_clicked.emit(self.ip)
+
+
+class ServerListWidget(QWidget):
+    """
+    Mostra os cartões dos servidores. Agora:
+      • Mantém os cards existentes e só cria/destroi o necessário.
+      • Usa deleteLater() para evitar widgets sem parent → janelas flutuantes.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cards: dict[str, ServerCard] = {}
+
+        self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(8)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+
+    # ------------------------------------------------------------------ #
+    def update_servers(self, status_dict: dict, known_servers: dict):
+        # ---- 1. REMOVE CARDS QUE NÃO EXISTEM MAIS ----
+        obsolete = set(self.cards) - set(known_servers)
+        for ip in obsolete:
+            card = self.cards.pop(ip, None)
+            if card:
+                self.layout.removeWidget(card)
+                card.deleteLater()
+
+        # ---- 2. ATUALIZA EXISTENTES ou CRIA NOVOS -------------------- #
+        for ip, name in known_servers.items():
+            # cria se ainda não existir
+            if ip not in self.cards:
+                card = ServerCard(name, ip)
+                card.card_clicked.connect(self.handleCardDoubleClick)
+                self.layout.addWidget(card)
+                self.cards[ip] = card
+            else:
+                card = self.cards[ip]
+
+            # aplica status / latência
+            status = status_dict.get(ip, {})
+            card.set_status(
+                status.get("online", False),
+                status.get("latency", 0)
+            )
+
+    def handleCardDoubleClick(self, ip):
+        parent = self.parent()
+        if parent and hasattr(parent, "open_dashboard") and callable(parent.open_dashboard):
+            for row, row_ip in enumerate(parent.servers):
+                if row_ip == ip:
+                    parent.open_dashboard(row, 0)
+
 
 if __name__ == "__main__":
     import sys
