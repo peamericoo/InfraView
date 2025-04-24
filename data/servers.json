@@ -251,6 +251,12 @@
             "ip": "172.217.29.163",
             "folder": "",
             "status": "running"
+        },
+        {
+            "name": "GoogleTestDNS",
+            "ip": "172.217.29.67",
+            "folder": "",
+            "status": "running"
         }
     ],
     "folders": [

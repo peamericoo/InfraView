@@ -74,7 +74,12 @@ class MonitorThread(QThread):
         self._running = False
 
     def run(self):
-        asyncio.run(self.monitor_loop())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self.monitor_loop())
+        finally:
+            loop.close()
 
     async def monitor_loop(self):
         groups = [self.servers[i:i + self.group_size] for i in range(0, len(self.servers), self.group_size)]
@@ -103,3 +108,15 @@ class MonitorThread(QThread):
         await asyncio.gather(*tasks)
         self.update_signal.emit(self.server_data)
 
+def test_ping_like_monitor(ip: str) -> bool:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        success, _ = loop.run_until_complete(async_ping(ip))
+        if not success:
+            success = loop.run_until_complete(tcp_ping(ip))
+        return success
+    except Exception:
+        return False
+    finally:
+        loop.close()

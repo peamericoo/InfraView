@@ -5,6 +5,7 @@ import logging
 from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem, QScrollArea, QFrame
 from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor
+from core.utils import get_data_path
 
 # Definindo nível de log para INFO em produção (pode ser alterado para DEBUG quando necessário)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

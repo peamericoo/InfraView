@@ -3,9 +3,12 @@ import logging
 from PyQt5.QtWidgets import QWidget, QPushButton, QGraphicsDropShadowEffect
 from PyQt5.QtGui import QIcon, QColor, QPainter, QPainterPath, QCursor
 from PyQt5.QtCore import pyqtSignal, QSize, Qt, QPropertyAnimation, QTimer, QPointF, QPoint
-from control_ping import toggle_pause
+from core.control_ping import toggle_pause
+from core.utils import get_data_path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+ASSETS_PATH = get_data_path("assets")
 
 def load_icon(filename, fallback_icon=QIcon()):
     """
@@ -41,7 +44,7 @@ class NavigationBar(QWidget):
         self.pings_paused = True  # Inicialmente, os pings estão pausados
         self.top_margin = 20      # Margem superior desejada
         self.button_margin = 10    # Distância vertical entre os botões
-        self.first_expand = True  # Para evitar animação indesejada na primeira vez
+       #self.first_expand = True  # Para evitar animação indesejada na primeira vez
         self.initUI()
         self.setupAnimations()
         self.setupTimer()
@@ -95,24 +98,27 @@ class NavigationBar(QWidget):
         # Estilo padrão para botões redondos
         button_style = """
             QPushButton {
-                background-color: #ECF0F1;
+                background-color: #1A2B3C;
+                color: white;
                 border: none;
-                border-radius: 20px;
+                border-radius: 12px;
+                padding: 10px 16px;
             }
             QPushButton:hover {
-                background-color: #BDC3C7;
+                background-color: #324860; /* azul mais claro */
             }
             QPushButton:pressed {
-                background-color: #95A5A6;
+                background-color: #3E5B7A;
             }
         """
 
+
         # Botão Home (novo)
         self.btn_home = QPushButton(self)
-        self.btn_home.setIcon(load_icon("home.svg"))
+        self.btn_home.setIcon(QIcon(os.path.join(ASSETS_PATH, "home.svg")))
         self.btn_home.setIconSize(QSize(24, 24))
         self.btn_home.setToolTip("Página Inicial")
-        self.btn_home.setFixedSize(40, 40)
+        self.btn_home.setFixedSize(64, 40)
         btn_home_shadow = QGraphicsDropShadowEffect(self.btn_home)
         btn_home_shadow.setBlurRadius(15)
         btn_home_shadow.setOffset(2, 2)
@@ -123,10 +129,10 @@ class NavigationBar(QWidget):
 
         # Botão de adicionar servidor (redondo)
         self.btn_add = QPushButton(self)
-        self.btn_add.setIcon(load_icon("add.svg"))
+        self.btn_add.setIcon(QIcon(os.path.join(ASSETS_PATH, "add.svg")))
         self.btn_add.setIconSize(QSize(24, 24))
         self.btn_add.setToolTip("Adicionar Servidor")
-        self.btn_add.setFixedSize(40, 40)
+        self.btn_add.setFixedSize(64, 40)
         btn_shadow = QGraphicsDropShadowEffect(self.btn_add)
         btn_shadow.setBlurRadius(15)
         btn_shadow.setOffset(2, 2)
@@ -138,17 +144,11 @@ class NavigationBar(QWidget):
 
         # Botão de pausar/despausar (redondo)
         self.btn_pause = QPushButton(self)
-        self.btn_pause.setIcon(load_icon("unpause.svg"))
+        self.btn_pause.setIcon(QIcon(os.path.join(ASSETS_PATH, "unpause.svg")))
         self.btn_pause.setIconSize(QSize(24, 24))
         self.btn_pause.setToolTip("Despausar Pings")
-        self.btn_pause.setFixedSize(40, 40)
-        self.btn_pause.setStyleSheet("""
-            QPushButton {
-                background-color: lightgreen;
-                border: none;
-                border-radius: 20px;
-            }
-        """)
+        self.btn_pause.setFixedSize(64, 40)
+        self.btn_pause.setStyleSheet(button_style)
         self.btn_pause.clicked.connect(self.onPauseClicked)
         self.btn_pause.hide()
 
@@ -261,21 +261,11 @@ class NavigationBar(QWidget):
         self.btn_anim.setStartValue(self.btn_add.pos())
         self.btn_anim.setEndValue(QPointF(final_x, final_y_add))
         self.btn_anim.start()
-        
-        # Animação para btn_pause
-        self.pause_anim.stop()
         final_y_pause = final_y_add + self.btn_add.height() + self.button_margin
-        
-        if self.first_expand:
-            # Para a primeira vez, movemos diretamente sem animação
-            self.btn_home.move(final_x, final_y_home)
-            self.btn_add.move(final_x, final_y_add)
-            self.btn_pause.move(final_x, final_y_pause)
-            self.first_expand = False
-        else:
-            self.pause_anim.setStartValue(self.btn_pause.pos())
-            self.pause_anim.setEndValue(QPointF(final_x, final_y_pause))
-            self.pause_anim.start()
+
+        self.pause_anim.setStartValue(self.btn_pause.pos())
+        self.pause_anim.setEndValue(QPointF(final_x, final_y_pause))
+        self.pause_anim.start()
         
         self.is_expanded = True
         logging.info("NavigationBar expandida.")
@@ -349,28 +339,47 @@ class NavigationBar(QWidget):
     def onPauseClicked(self):
         main_window = self.window()
         toggle_pause(main_window)
-        # Aplica style fixo de acordo com o estado
+
+        # Apenas troca a cor do botão mantendo o restante do estilo
         if main_window.monitor_paused:
             self.btn_pause.setStyleSheet("""
                 QPushButton {
-                    background-color: lightgreen;
+                    background-color: #1A2B3C;
+                    color: white;
                     border: none;
-                    border-radius: 20px;
+                    border-radius: 12px;
+                    padding: 10px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #324860;
+                }
+                QPushButton:pressed {
+                    background-color: #3E5B7A;
                 }
             """)
-            self.btn_pause.setIcon(load_icon("unpause.svg"))
+            self.btn_pause.setIcon(QIcon(os.path.join(ASSETS_PATH, "unpause.svg")))
             self.btn_pause.setToolTip("Despausar Pings")
         else:
             self.btn_pause.setStyleSheet("""
                 QPushButton {
-                    background-color: lightcoral;
+                    background-color: #3E5B7A;
+                    color: white;
                     border: none;
-                    border-radius: 20px;
+                    border-radius: 12px;
+                    padding: 10px 16px;
+                }
+                QPushButton:hover {
+                    background-color: #48678D;
+                }
+                QPushButton:pressed {
+                    background-color: #324860;
                 }
             """)
-            self.btn_pause.setIcon(load_icon("pause.svg"))
+            self.btn_pause.setIcon(QIcon(os.path.join(ASSETS_PATH, "pause.svg")))
             self.btn_pause.setToolTip("Pausar Pings")
+
         self.btn_pause.setIconSize(QSize(24, 24))
+
 
     def onAddClicked(self, event=None):
         main_win = self.window()

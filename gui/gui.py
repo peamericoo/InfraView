@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 import re
 import logging
 import hashlib
-from hive_view import HiveView
+from core.utils import get_data_path, validate_ip, resolve_and_ping
+from gui.hive_view import HiveView
 import mplcursors
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -17,16 +18,17 @@ from PyQt5.QtMultimedia import QSound
 from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QColor, QFont, QPainter, QBrush, QPen
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from monitor import MonitorThread
-from config import load_servers, save_servers
-from utils import validate_ip
-from navigation_bar import NavigationBar
+from core.monitor import MonitorThread
+from core.database import get_all_servers, insert_server
+from gui.navigation_bar import NavigationBar
 
 # Importa a tela de edição de servidores
-from edit_servers import EditServersWidget
+from gui.edit_servers import EditServersWidget
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-OFFLINE_SOUND_PATH = "notification-2-269292.wav"
+
+ASSETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
+OFFLINE_SOUND_PATH = os.path.join(ASSETS_PATH, "notification-2-269292.wav")
 
 def create_circle_pixmap(color: QColor, diameter=12) -> QPixmap:
     pixmap = QPixmap(diameter, diameter)
@@ -42,14 +44,13 @@ def create_circle_pixmap(color: QColor, diameter=12) -> QPixmap:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        print("MainWindow: início do __init__")
         self.setWindowTitle("InfraView - Monitor de Servidores")
         self.resize(1460, 930)
 
-        loaded = load_servers()
-        if isinstance(loaded, dict) and "servers" in loaded:
-            self.servers = {server["ip"]: server["name"] for server in loaded["servers"]}
-        else:
-            self.servers = loaded
+        db_rows = get_all_servers()
+        self.servers = {row[1]: row[0] for row in db_rows}  # ip: name
+
 
         self.offline_count = {ip: 0 for ip in self.servers}
         self.failure_history = {ip: [] for ip in self.servers}
@@ -167,9 +168,10 @@ class MainWindow(QMainWindow):
 
         self.edit_servers_widget = EditServersWidget(self)
         self.stack.addWidget(self.edit_servers_widget)
+        print("MainWindow: __init__ finalizado")
 
 
-        self.last_servers_json_hash = self.get_servers_json_hash()
+        #self.last_servers_json_hash = self.get_servers_json_hash()
 
     def handleCardDoubleClick(self, ip):
         for row, (srv_ip, name) in enumerate(self.servers.items()):
@@ -178,21 +180,12 @@ class MainWindow(QMainWindow):
                 break
 
     def reload_servers_data(self):
-        loaded = load_servers()
-        if isinstance(loaded, dict) and "servers" in loaded:
-            self.servers = {server["ip"]: server["name"] for server in loaded["servers"]}
-        else:
-            self.servers = loaded
+        db_rows = get_all_servers()
+        self.servers = {row[1]: row[0] for row in db_rows}  # ip: name
+
         self.offline_count = {ip: 0 for ip in self.servers}
         self.failure_history = {ip: [] for ip in self.servers}
         self.rebuild_hive_view()
-
-    def get_servers_json_hash(self):
-        try:
-            with open("servers.json", "rb") as f:
-                return hashlib.md5(f.read()).hexdigest()
-        except Exception:
-            return None
 
     def createMainPage(self):
         from PyQt5.QtWidgets import QScrollArea, QFrame
@@ -219,8 +212,6 @@ class MainWindow(QMainWindow):
         self.server_scroll.setWidget(self.server_list)
 
         group_servers_layout.addWidget(self.server_scroll)
-
-
         left_vbox.addWidget(group_servers)
 
         group_falhas = QGroupBox("Registro de Falhas Offline")
@@ -244,33 +235,19 @@ class MainWindow(QMainWindow):
         self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
 
-        # --- NOVA LÓGICA COM CORES DE PASTA ---
-        try:
-            with open("servers.json", "r") as f:
-                data = json.load(f)
-        except Exception:
-            data = {"servers": [], "folders": []}
-
-        folder_colors = {
-            f["name"]: f.get("color", "#000000")
-            for f in data.get("folders", [])
-        }
-
-        servers_data = []
-        for s in data.get("servers", []):
-            name = s["name"]
-            ip = s["ip"]
-            folder = s.get("folder", "")
-            color = folder_colors.get(folder, "#000000")
-            servers_data.append((name, ip, 0, folder, color))
-
-        servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))  # ordena por nome da pasta
+        db_rows = get_all_servers()
+        servers_data = [
+            (name, ip, 0, folder or "", color or "#000000")
+            for name, ip, status, folder, color in db_rows
+        ]
+        servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
 
         self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
         main_content_layout.addWidget(self.group_hive, 1)
 
         return main_content
+
 
 
     def showEditServers(self):
@@ -288,7 +265,6 @@ class MainWindow(QMainWindow):
                 self.servers[ip] = name
                 self.offline_count[ip] = 0
                 self.failure_history[ip] = []
-                save_servers(self.servers)
                 if not self.monitor_paused and self.monitor_thread is not None:
                     self.monitor_thread.servers = list(self.servers.keys())
                 self.rebuild_hive_view()
@@ -313,26 +289,15 @@ class MainWindow(QMainWindow):
                 layout.removeWidget(self.hive_view)
                 self.hive_view.deleteLater()
 
-            # --- NOVA LÓGICA COM CORES DE PASTA ---
-            try:
-                with open("servers.json", "r") as f:
-                    data = json.load(f)
-            except Exception:
-                data = {"servers": [], "folders": []}
+            db_rows = get_all_servers()
+            servers_data = [
+                (name, ip, 0, folder or "", color or "#000000")
+                for name, ip, status, folder, color in db_rows
+            ]
+            servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
 
-            # Cria dicionário {pasta: cor}
-            folder_colors = {
-                f["name"]: f.get("color", "#000000")
-                for f in data.get("folders", [])
-            }
-
-            servers_data = []
-            for s in data.get("servers", []):
-                name = s["name"]
-                ip = s["ip"]
-                folder = s.get("folder", "")
-                color = folder_colors.get(folder, "#000000")
-                servers_data.append((name, ip, 0, folder, color))
+            self.hive_view = HiveView(servers_data, columns=4)
+            layout.addWidget(self.hive_view)
 
             # Ordena por nome da pasta (agrupamento visual)
             servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
@@ -367,16 +332,13 @@ class MainWindow(QMainWindow):
             else:
                 self.offline_count[ip] = 0
 
-        try:
-            with open("servers.json", "r") as f:
-                data = json.load(f)
-            folders = {f["name"]: f.get("color", "#000000") for f in data.get("folders", [])}
-            servers_lookup = {
-                s["ip"]: (s["name"], s["ip"], s.get("folder", ""), folders.get(s.get("folder", ""), "#000000"))
-                for s in data.get("servers", [])
+        from core.database import get_all_servers
+
+        db_rows = get_all_servers()
+        servers_lookup = {
+                ip: (name, ip, folder or "", color or "#000000")
+                for name, ip, status, folder, color in db_rows
             }
-        except:
-            servers_lookup = {}
 
         updated_hive_data.clear()
         for ip, (name, ip, folder, color) in servers_lookup.items():
@@ -535,11 +497,7 @@ class MainWindow(QMainWindow):
             print("Arquivo de som não encontrado:", OFFLINE_SOUND_PATH)
 
     def showHomePage(self):
-        current_hash = self.get_servers_json_hash()
-        if current_hash != self.last_servers_json_hash:
-            self.reload_servers_data()
-            self.last_servers_json_hash = current_hash
-        self.stack.setCurrentWidget(self.main_content)
+        self.reload_servers_data()
 
 
 # As classes ServerDashboard permanecem inalteradas

@@ -1,0 +1,11 @@
+{
+    "servers": [
+        {
+            "name": "testedeaddservers",
+            "ip": "142.251.135.206",
+            "folder": "",
+            "status": "running"
+        }
+    ],
+    "folders": []
+}

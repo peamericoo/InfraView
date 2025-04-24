@@ -1,4 +1,4 @@
-from monitor import MonitorThread
+from core.monitor import MonitorThread
 
 def toggle_pause(main_window):
     pause_button = main_window.nav_bar.btn_pause  # Utiliza o botão presente na NavigationBar
