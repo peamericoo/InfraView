@@ -4,6 +4,12 @@ import os
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QFont, QFontDatabase
 from gui.gui import MainWindow  # ✅ Importação absoluta correta
+from core.updater import verificar_atualizacao, aplicar_atualizacao
+
+def main():
+    atualizar, nova_versao = verificar_atualizacao()
+    if atualizar:
+        aplicar_atualizacao()
 
 def main():
     try:

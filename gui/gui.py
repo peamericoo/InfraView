@@ -299,12 +299,6 @@ class MainWindow(QMainWindow):
             self.hive_view = HiveView(servers_data, columns=4)
             layout.addWidget(self.hive_view)
 
-            # Ordena por nome da pasta (agrupamento visual)
-            servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
-
-            self.hive_view = HiveView(servers_data, columns=4)
-            layout.addWidget(self.hive_view)
-
     def setupMonitor(self):
         if not self.monitor_paused:
             self.monitor_thread = MonitorThread(list(self.servers.keys()))
@@ -497,7 +491,15 @@ class MainWindow(QMainWindow):
             print("Arquivo de som não encontrado:", OFFLINE_SOUND_PATH)
 
     def showHomePage(self):
-        self.reload_servers_data()
+        db_rows = get_all_servers()
+        new_hash = hashlib.md5(str(db_rows).encode("utf-8")).hexdigest()
+
+        if not hasattr(self, "last_db_hash") or self.last_db_hash != new_hash:
+            self.last_db_hash = new_hash
+            self.reload_servers_data()
+
+        self.stack.setCurrentWidget(self.main_content)
+
 
 
 # As classes ServerDashboard permanecem inalteradas
@@ -767,7 +769,13 @@ class ServerListWidget(QWidget):
                 card.deleteLater()
 
         # ---- 2. ATUALIZA EXISTENTES ou CRIA NOVOS -------------------- #
-        for ip, name in known_servers.items():
+        def sort_key(ip):
+            status = status_dict.get(ip, {})
+            return (status.get("online", True), ip)
+
+        for ip in sorted(known_servers, key=sort_key):
+            name = known_servers[ip]
+
             # cria se ainda não existir
             if ip not in self.cards:
                 card = ServerCard(name, ip)
@@ -783,6 +791,19 @@ class ServerListWidget(QWidget):
                 status.get("online", False),
                 status.get("latency", 0)
             )
+            
+            # --- Reordena visualmente os widgets no layout ---
+        for i in reversed(range(self.layout.count())):
+            widget = self.layout.itemAt(i).widget()
+            if widget:
+                self.layout.removeWidget(widget)
+
+        # Ordena pelo status atual
+        sorted_ips = sorted(known_servers, key=sort_key)
+        for ip in sorted_ips:
+            card = self.cards[ip]
+            self.layout.addWidget(card)
+
 
     def handleCardDoubleClick(self, ip):
         parent = self.parent()

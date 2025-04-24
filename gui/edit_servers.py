@@ -192,6 +192,12 @@ class EditServersWidget(QWidget):
 
         main_layout = QVBoxLayout(page)
         main_layout.setSpacing(20)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(20)
+
+
         logger.info("ServersPage: Layout configurado")
 
         # Layout horizontal para adicionar e remover
@@ -366,7 +372,12 @@ class EditServersWidget(QWidget):
             page = QWidget()
             logger.info("FoldersPage: QWidget criado")
 
-            layout = QVBoxLayout(page)
+            main_layout = QVBoxLayout(page)
+            main_layout.setSpacing(20)
+            main_layout.setContentsMargins(15, 15, 15, 15)
+            top_layout = QHBoxLayout()
+            top_layout.setSpacing(20)
+
             logger.info("FoldersPage: Layout configurado")
 
             # Grupo para adicionar pasta
@@ -378,23 +389,40 @@ class EditServersWidget(QWidget):
             self.folderColorLabel_add = QLabel("Cor: #000000", self)
             self.folderColorLabel_add.setStyleSheet("color: #FFFFFF")
             self.folderColorButton_add = QPushButton("Escolher Cor", self)
-            self.folderColorButton_add.clicked.connect(lambda: self.chooseFolderColor("add"))
+            self.folderColorButton_add.clicked.connect(self.onPickColorAdd)
             self.serverList_all = QListWidget(self)
+            self.serverList_all.setSelectionMode(QListWidget.MultiSelection)
+
             self.serverList_unassigned = QListWidget(self)
+            self.serverList_unassigned.setSelectionMode(QListWidget.MultiSelection)
+
             self.refreshServerListForFolder()
             btn_add_folder = QPushButton("Criar Pasta", self)
             btn_add_folder.clicked.connect(self.onAddFolder)
 
-            layout_add.addWidget(QLabel("Nome da pasta:", self))
+            label_nome = QLabel("Nome da pasta:", self)
+            label_nome.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+            layout_add.addWidget(label_nome)
+
             layout_add.addWidget(self.folderNameInput_add)
             layout_add.addWidget(self.folderColorLabel_add)
             layout_add.addWidget(self.folderColorButton_add)
-            layout_add.addWidget(QLabel("Servidores disponíveis:", self))
-            layout_add.addWidget(self.serverList_unassigned)
-            layout_add.addWidget(QLabel("Todos os servidores:", self))
-            layout_add.addWidget(self.serverList_all)
+            label_disp = QLabel("Servidores disponíveis:", self)
+            label_disp.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+            label_all = QLabel("Todos os servidores:", self)
+            label_all.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+
+            layout_add.addWidget(label_disp)
+
+            dual_list_layout = QHBoxLayout()
+            dual_list_layout.addWidget(self.serverList_unassigned)
+            dual_list_layout.addWidget(self.serverList_all)
+
+            layout_add.addLayout(dual_list_layout)
+            layout_add.addWidget(label_all)
+
             layout_add.addWidget(btn_add_folder)
-            layout.addWidget(group_add)
+            main_layout.addWidget(group_add)
             logger.info("FoldersPage: Grupo de adição criado")
 
             # Grupo para editar/remover pasta
@@ -406,7 +434,7 @@ class EditServersWidget(QWidget):
             self.folderNameInput_edit = QLineEdit(self)
             self.folderColorLabel_edit = QLabel("Nova cor: ", self)
             self.folderColorButton_edit = QPushButton("Escolher nova cor", self)
-            self.folderColorButton_edit.clicked.connect(lambda: self.chooseFolderColor("edit"))
+            self.folderColorButton_edit.clicked.connect(self.onPickColorEdit)
             self.folderColor_edit = ""
             btn_edit_folder = QPushButton("Editar Pasta", self)
             btn_edit_folder.clicked.connect(self.onEditFolder)
@@ -418,15 +446,20 @@ class EditServersWidget(QWidget):
             layout_edit.addWidget(self.folderNameInput_edit)
             layout_edit.addWidget(self.folderColorLabel_edit)
             layout_edit.addWidget(self.folderColorButton_edit)
-            layout_edit.addWidget(btn_edit_folder)
-            layout_edit.addWidget(btn_remove_folder)
-            layout.addWidget(group_edit)
+            btn_row = QHBoxLayout()
+            btn_row.addWidget(self.folderColorButton_edit)
+            btn_row.addWidget(btn_edit_folder)
+            btn_row.addWidget(btn_remove_folder)
+            layout_edit.addLayout(btn_row)
+
+            main_layout.addWidget(group_edit)
             logger.info("FoldersPage: Grupo de edição criado")
 
             return page
         except Exception as e:
             logger.exception("Erro dentro de createFoldersPage")
             raise
+
 
     def refreshFolderList(self):
         self.folderList_edit.clear()
