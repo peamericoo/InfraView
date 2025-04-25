@@ -22,6 +22,8 @@ from PyQt5.QtWidgets import (
     QComboBox, QListWidget, QListWidgetItem, QColorDialog, QCheckBox, QGroupBox, QMessageBox, QSizePolicy
 )
 from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt
+
 
 #logging.basicConfig(level=logging.INFO,
                     #format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,19 +33,31 @@ class EditServersWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         logger.info("EditServersWidget: início do __init__")
+
         self.servers_data = []
         self.folders_data = []
         self.loadData()
         logger.info("Checkpoint 1: Dados carregados")
 
         self.tabs = QTabWidget()
-        logger.info("Checkpoint 2: TabWidget criado")
+        
+        # obtém o QTabBar e desliga o “base” que ele desenha por baixo das abas
+        tabbar = self.tabs.tabBar()
+        tabbar.setDrawBase(False)                          # não desenha o fundo padrão
+        tabbar.setAutoFillBackground(False)                # não preenche o fundo
+        tabbar.setAttribute(Qt.WA_TranslucentBackground)   # torna a área realmente transparente
 
-        self.setAutoFillBackground(True)
-        layout = QVBoxLayout(self) 
-         # Create a layout for the widget
+        # ✅ Layout direto aplicado ao self
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)  # Opcional: garante bordas zeradas
+        layout.setSpacing(0)
         layout.addWidget(self.tabs)
-        self.setLayout(layout)  # Set the layout as the main layout for the widget
+        self.setLayout(layout)
+        self.tabs.setDocumentMode(True)
+
+
+        # ✅ Preenche corretamente o fundo
+        self.setAutoFillBackground(True)
 
         try:
             self.servers_page = self.createServersPage()
@@ -51,8 +65,6 @@ class EditServersWidget(QWidget):
         except Exception as e:
             logger.exception("Erro ao criar a página de servidores")
             raise
-
-        logger.info("Checkpoint 3: Página de servidores criada")
 
         self.folders_page = self.createFoldersPage()
         logger.info("Checkpoint 4: Página de pastas criada")
@@ -62,104 +74,120 @@ class EditServersWidget(QWidget):
         logger.info("EditServersWidget: __init__ finalizado")
 
         self.setStyleSheet("""
-        QWidget {
-            background-color: #1E1E1E;
-            color: #CCCCCC;
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 9pt;
-        }
-        QGroupBox {
-            border: 1px solid #3C3C3C;
-            border-radius: 8px;
-            margin-top: 10px;
-            padding: 10px;
-            background-color: #252526;
-        }                                     
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top center;
-            padding: 4px 12px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #3A3A3A, stop:1 #2D2D30);
-            color: white;
-            border-radius: 5px;
-        }
-        QLineEdit, QComboBox, QListWidget {
-            background-color: #2D2D30;
-            border: 1px solid #3C3C3C;
-            border-radius: 5px;
-            padding: 6px;
-            color: #FFFFFF;
-        }
-        QPushButton {
-            border-radius: 6px;
-            padding: 6px 14px;
-            font-weight: bold;
-        }
-        QPushButton#add {
-            background-color: #27AE60;
-            color: white;
-        }
-        QPushButton#add:hover {
-            background-color: #1E8449;
-        }
-        QPushButton#remove {
-            background-color: #C0392B;
-            color: white;
-        }
-        QPushButton#remove:hover {
-            background-color: #922B21;
-        }
-        QPushButton#edit {
-            background-color: #F39C12;
-            color: white;
-        }
-        QPushButton#edit:hover {
-            background-color: #D68910;
-        }
-        QScrollBar:vertical {
-            background: transparent;
-            width: 10px;
-            margin: 4px;
-        }
-        QScrollBar::handle:vertical {
-            background: #5C5C5C;
-            min-height: 20px;
-            border-radius: 6px;
-        }
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {
-            background: #3C3C3C;
-            height: 12px;
-        }
-        QScrollBar::handle:vertical:hover {
-            background: #888;
-        }
-        QTabWidget::pane {
-            border: 1px solid #3C3C3C;
-            background-color: #1E1E1E;
-        }
-        QTabBar::tab {
-            background: #2D2D30;
-            color: #CCCCCC;
-            border: 1px solid #3C3C3C;
-            border-top-left-radius: 6px;
-            border-top-right-radius: 6px;
-            padding: 4px 14px;
-            margin-right: 2px;
-            min-height: 28px;
-            min-width: 100px;
-        }
-        QTabBar::tab:selected {
-            background: #3A3A3A;
-            color: white;
-            font-weight: bold;
-        }
-        QTabBar::tab:hover {
-            background: #444;
-        }
-                  
-    """)
+                QWidget {
+                    background-color: #1E1E1E;
+                    color: #CCCCCC;
+                    font-family: 'Segoe UI', sans-serif;
+                    font-size: 9pt;
+                }
+                QGroupBox {
+                    border: 1px solid #3C3C3C;
+                    border-radius: 8px;
+                    margin-top: 10px;
+                    padding: 10px;
+                    background-color: #252526;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    subcontrol-position: top center;
+                    padding: 4px 12px;
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #3A3A3A, stop:1 #2D2D30);
+                    color: white;
+                    border-radius: 5px;
+                }
+                QLineEdit, QComboBox, QListWidget {
+                    background-color: #2D2D30;
+                    border: 1px solid #3C3C3C;
+                    border-radius: 5px;
+                    padding: 6px;
+                    color: #FFFFFF;
+                }
+                QPushButton {
+                    border-radius: 6px;
+                    padding: 6px 14px;
+                    font-weight: bold;
+                }
+                QPushButton#add {
+                    background-color: #27AE60;
+                    color: white;
+                }
+                QPushButton#add:hover {
+                    background-color: #1E8449;
+                }
+                QPushButton#remove {
+                    background-color: #C0392B;
+                    color: white;
+                }
+                QPushButton#remove:hover {
+                    background-color: #922B21;
+                }
+                QPushButton#edit {
+                    background-color: #F39C12;
+                    color: white;
+                }
+                QPushButton#edit:hover {
+                    background-color: #D68910;
+                }
+                QScrollBar:vertical {
+                    background: transparent;
+                    width: 10px;
+                    margin: 4px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #5C5C5C;
+                    min-height: 20px;
+                    border-radius: 6px;
+                }
+                QScrollBar::add-line:vertical,
+                QScrollBar::sub-line:vertical {
+                    background: #3C3C3C;
+                    height: 12px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background: #888;
+                }
+
+                /* garante que todo o QTabWidget pinte seu fundo */
+                QTabWidget {
+                    background-color: #1E1E1E;
+                }
+                /* configura o painel de páginas */
+                QTabWidget::pane {
+                    border: 1px solid #3C3C3C;
+                    background-color: #1E1E1E;
+                }
+
+                /* faz a área antes da primeira aba casar com as abas não-selecionadas */
+                QTabWidget::tab-bar {
+                    background-color: #2D2D30;
+                }
+                /* desliga qualquer base padrão do próprio QTabBar */
+                QTabBar {
+                    qproperty-drawBase: false;
+                }
+
+                /* estilo dos próprios botões de aba */
+                QTabBar::tab {
+                    background: #2D2D30;
+                    color: #CCCCCC;
+                    border: 1px solid #3C3C3C;
+                    border-top-left-radius: 6px;
+                    border-top-right-radius: 6px;
+                    padding: 4px 14px;
+                    margin-right: 2px;
+                    min-height: 28px;
+                    min-width: 100px;
+                }
+                QTabBar::tab:selected {
+                    background: #3A3A3A;
+                    color: white;
+                    font-weight: bold;
+                }
+                QTabBar::tab:hover {
+                    background: #444;
+                }
+        """)
 
 
     def loadData(self):
@@ -170,9 +198,15 @@ class EditServersWidget(QWidget):
     def saveData(self):
         try:
             self.loadData()
+            self.refreshEditCombo()
+            self.refreshRemoveList()
+            self.refreshFolderList()
+            self.refreshServerListUnified()
             self.refreshAll()
         except Exception as e:
             QMessageBox.critical(self, "Erro", f"Erro ao atualizar a interface: {e}")
+
+
 
 
     def refreshAll(self):
@@ -201,8 +235,7 @@ class EditServersWidget(QWidget):
         logger.info("ServersPage: Layout configurado")
 
         # Layout horizontal para adicionar e remover
-        top_layout = QHBoxLayout()
-        top_layout.setSpacing(20)
+
 
         # --- Adicionar Servidor ---
         add_group = QGroupBox("Adicionar Servidor")
@@ -238,6 +271,7 @@ class EditServersWidget(QWidget):
         remove_layout = QVBoxLayout(remove_group)
         remove_layout.setSpacing(10)
         self.serverList_remove = QListWidget(self)
+        self.serverList_remove.setSelectionMode(QListWidget.MultiSelection)
         self.refreshRemoveList()
         rem_btn = QPushButton("Remover Servidor Selecionado", self)
         rem_btn.setObjectName("remove")
@@ -366,116 +400,165 @@ class EditServersWidget(QWidget):
 
     # =================== Página Editar Pastas ===================
     def createFoldersPage(self):
-
-        logger.info("FoldersPage: Iniciando criação da página")
         try:
             page = QWidget()
-            logger.info("FoldersPage: QWidget criado")
-
-            main_layout = QVBoxLayout(page)
+            main_layout = QHBoxLayout(page)
             main_layout.setSpacing(20)
             main_layout.setContentsMargins(15, 15, 15, 15)
-            top_layout = QHBoxLayout()
-            top_layout.setSpacing(20)
 
-            logger.info("FoldersPage: Layout configurado")
-
-            # Grupo para adicionar pasta
-            logger.info("FoldersPage: Criando grupo de adição")
+            # ========== Adicionar Pasta ==========
             group_add = QGroupBox("Adicionar Pasta")
             layout_add = QVBoxLayout(group_add)
+            layout_add.setSpacing(10)
+
             self.folderNameInput_add = QLineEdit(self)
-            self.folderColor_add = "#000000"
-            self.folderColorLabel_add = QLabel("Cor: #000000", self)
-            self.folderColorLabel_add.setStyleSheet("color: #FFFFFF")
+            self.folderColor_add = "#000000" # Não exibe o 'Cor:' bugado
+
             self.folderColorButton_add = QPushButton("Escolher Cor", self)
+            self.folderColorButton_add.setStyleSheet(
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4e54c8, stop:1 #8f94fb); color: white")
             self.folderColorButton_add.clicked.connect(self.onPickColorAdd)
-            self.serverList_all = QListWidget(self)
-            self.serverList_all.setSelectionMode(QListWidget.MultiSelection)
 
-            self.serverList_unassigned = QListWidget(self)
-            self.serverList_unassigned.setSelectionMode(QListWidget.MultiSelection)
-
-            self.refreshServerListForFolder()
             btn_add_folder = QPushButton("Criar Pasta", self)
+            btn_add_folder.setStyleSheet("background-color: #28a745; color: white")
             btn_add_folder.clicked.connect(self.onAddFolder)
 
-            label_nome = QLabel("Nome da pasta:", self)
-            label_nome.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
-            layout_add.addWidget(label_nome)
+            row_actions_add = QHBoxLayout()
+            row_actions_add.addWidget(self.folderColorButton_add)
+            row_actions_add.addWidget(btn_add_folder)
 
+            self.serverList_all = QListWidget(self)
+            self.serverList_all.setSelectionMode(QListWidget.MultiSelection)
+            self.refreshServerListUnified()
+
+            layout_add.addWidget(QLabel("Nome da pasta:", self))
             layout_add.addWidget(self.folderNameInput_add)
-            layout_add.addWidget(self.folderColorLabel_add)
-            layout_add.addWidget(self.folderColorButton_add)
-            label_disp = QLabel("Servidores disponíveis:", self)
-            label_disp.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
-            label_all = QLabel("Todos os servidores:", self)
-            label_all.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+            layout_add.addLayout(row_actions_add)
+            layout_add.addWidget(QLabel("Servidores:", self))
+            layout_add.addWidget(self.serverList_all)
 
-            layout_add.addWidget(label_disp)
-
-            dual_list_layout = QHBoxLayout()
-            dual_list_layout.addWidget(self.serverList_unassigned)
-            dual_list_layout.addWidget(self.serverList_all)
-
-            layout_add.addLayout(dual_list_layout)
-            layout_add.addWidget(label_all)
-
-            layout_add.addWidget(btn_add_folder)
-            main_layout.addWidget(group_add)
-            logger.info("FoldersPage: Grupo de adição criado")
-
-            # Grupo para editar/remover pasta
-            logger.info("FoldersPage: Criando grupo de edição")
+            # ========== Editar/Remover Pasta ==========
             group_edit = QGroupBox("Editar/Remover Pasta")
             layout_edit = QVBoxLayout(group_edit)
-            self.folderList_edit = QListWidget(self)
-            self.refreshFolderList()
+            layout_edit.setSpacing(10)
+
+            row_folder_meta = QHBoxLayout()
+            column_left = QVBoxLayout()
+            column_right = QVBoxLayout()
+
+            # Lado esquerdo (Novo nome + Cor)
+            column_left.addWidget(QLabel("Novo nome:", self))
             self.folderNameInput_edit = QLineEdit(self)
-            self.folderColorLabel_edit = QLabel("Nova cor: ", self)
-            self.folderColorButton_edit = QPushButton("Escolher nova cor", self)
-            self.folderColorButton_edit.clicked.connect(self.onPickColorEdit)
+            column_left.addWidget(self.folderNameInput_edit)
+
             self.folderColor_edit = ""
+            self.folderColorLabel_edit = QLabel("", self)  # Corrigido: Label invisível
+            # NÃO adiciona self.folderColorLabel_edit no layout
+
+            # Lado direito (Selecionar pasta)
+            column_right.addWidget(QLabel("Selecione a pasta:", self))
+            self.folderSelect_edit = QComboBox(self)
+            self.refreshFolderSelectCombo()
+            column_right.addWidget(self.folderSelect_edit)
+
+            row_folder_meta.addLayout(column_left)
+            row_folder_meta.addLayout(column_right)
+
+            layout_edit.addLayout(row_folder_meta)
+
+            row_actions_edit = QHBoxLayout()
+            self.folderColorButton_edit = QPushButton("Escolher Nova Cor", self)
+            self.folderColorButton_edit.setStyleSheet(
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4e54c8, stop:1 #8f94fb); color: white")
+            self.folderColorButton_edit.clicked.connect(self.onPickColorEdit)
+
             btn_edit_folder = QPushButton("Editar Pasta", self)
+            btn_edit_folder.setStyleSheet("background-color: #ffc107; color: black")
             btn_edit_folder.clicked.connect(self.onEditFolder)
+
             btn_remove_folder = QPushButton("Remover Pasta", self)
+            btn_remove_folder.setStyleSheet("background-color: #dc3545; color: white")
             btn_remove_folder.clicked.connect(self.onRemoveFolder)
 
-            layout_edit.addWidget(self.folderList_edit)
-            layout_edit.addWidget(QLabel("Novo nome:", self))
-            layout_edit.addWidget(self.folderNameInput_edit)
-            layout_edit.addWidget(self.folderColorLabel_edit)
-            layout_edit.addWidget(self.folderColorButton_edit)
-            btn_row = QHBoxLayout()
-            btn_row.addWidget(self.folderColorButton_edit)
-            btn_row.addWidget(btn_edit_folder)
-            btn_row.addWidget(btn_remove_folder)
-            layout_edit.addLayout(btn_row)
+            row_actions_edit.addWidget(self.folderColorButton_edit)
+            row_actions_edit.addWidget(btn_edit_folder)
+            row_actions_edit.addWidget(btn_remove_folder)
 
+            layout_edit.addLayout(row_actions_edit)
+
+            self.serverList_info = QListWidget(self)
+            self.serverList_info.setSelectionMode(QListWidget.MultiSelection)  # <--- Aqui corrigido
+            self.refreshServerListUnified(target=self.serverList_info)
+
+            layout_edit.addWidget(QLabel("Servidores:", self))
+            layout_edit.addWidget(self.serverList_info)
+
+            main_layout.addWidget(group_add)
             main_layout.addWidget(group_edit)
-            logger.info("FoldersPage: Grupo de edição criado")
 
             return page
+
         except Exception as e:
             logger.exception("Erro dentro de createFoldersPage")
             raise
 
 
+    
+    def refreshFolderSelectCombo(self):
+        self.folderSelect_edit.clear()
+        for folder in self.folders_data:
+            self.folderSelect_edit.addItem(folder["name"])
+
+    def refreshServerListUnified(self, target=None):
+        if target is None:
+            target = self.serverList_all
+        target.clear()
+        color_dict = {folder["name"]: folder["color"] for folder in self.folders_data}
+        # Agrupar manualmente os servidores com pasta atribuída juntos por pasta
+        grouped = {}
+        for srv in self.servers_data:
+            name = srv[0]
+            folder = srv[3]
+            if folder not in grouped:
+                grouped[folder] = []
+            grouped[folder].append(srv)
+
+        # Ordena: pastas nomeadas primeiro (agrupadas), depois os sem pasta
+        ordered_servers = []
+        for folder in sorted([f for f in grouped if f is not None]):
+            ordered_servers.extend(grouped[folder])
+        if None in grouped:
+            ordered_servers.extend(grouped[None])
+
+        server_dict = {srv[0]: srv[3] for srv in ordered_servers}
+
+        for server_name, folder_name in server_dict.items():
+            item = QListWidgetItem(server_name)
+            if folder_name:
+                color = color_dict.get(folder_name, "#999999")
+                circle = "\u2B24"  # bolinha Unicode
+                item.setText(f"{server_name.ljust(24)}   {circle} {folder_name}")
+                item.setForeground(QColor(color))
+            else:
+                item.setText(f"{server_name}   \u25CB (não atribuído)")
+                item.setForeground(QColor("gray"))
+            target.addItem(item)
+
     def refreshFolderList(self):
-        self.folderList_edit.clear()
+        self.folderSelect_edit.clear()
         for f in self.folders_data:
             try:
                 name = f[0] if isinstance(f, (tuple, list)) else f.get("name", "??")
-                item = QListWidgetItem(name)
-                self.folderList_edit.addItem(item)
+                self.folderSelect_edit.addItem(name)
             except Exception as e:
                 logger.exception(f"Erro ao carregar pasta na lista de edição: {e}")
+
 
     def onPickColorAdd(self):
         color = QColorDialog.getColor()
         if color.isValid():
             self.folderColor_add = color.name()
-            self.folderColorLabel_add.setText(f"Cor: {self.folderColor_add}")
+
 
     def onAddFolder(self):
         folder_name = self.folderNameInput_add.text().strip()
@@ -487,12 +570,8 @@ class EditServersWidget(QWidget):
             QMessageBox.warning(self, "Atenção", "Você deve escolher uma cor para a pasta!")
             return
 
-        selected_items = self.serverList_unassigned.selectedItems()
-        if not selected_items:
-            selected_items = self.serverList_all.selectedItems()
-            if not selected_items:
-                QMessageBox.warning(self, "Atenção", "Você deve selecionar pelo menos um servidor para vincular à pasta.")
-                return
+        selected_items = self.serverList_all.selectedItems()
+
 
         selected_names = [item.text() for item in selected_items]
 
@@ -503,39 +582,21 @@ class EditServersWidget(QWidget):
 
         self.saveData()
         self.folderNameInput_add.clear()
-        self.folderColorLabel_add.setText("Cor: #000000")
         self.folderColor_add = "#000000"
-        self.refreshServerListForFolder()
         self.refreshFolderList()
-
-    def refreshServerListForFolder(self):
-        self.serverList_all.clear()
-        self.serverList_unassigned.clear()
-        for s in self.servers_data:
-            try:
-                name = s[0] if isinstance(s, (tuple, list)) else s.get("name", "??")
-                folder = s[3] if isinstance(s, (tuple, list)) else s.get("folder", "")
-                item_all = QListWidgetItem(name)
-                self.serverList_all.addItem(item_all)
-                if not folder:
-                    item_unassigned = QListWidgetItem(name)
-                    self.serverList_unassigned.addItem(item_unassigned)
-            except Exception as e:
-                logger.exception(f"Erro ao atualizar listas de servidores por pasta: {e}")
 
     def onPickColorEdit(self):
         color = QColorDialog.getColor()
         if color.isValid():
             self.folderColor_edit = color.name()
-            self.folderColorLabel_edit.setText(f"Nova cor: {self.folderColor_edit}")
+            self.folderColorLabel_edit.setText(f"Cor selecionada: {self.folderColor_edit}")
 
     def onEditFolder(self):
-        selected_item = self.folderList_edit.currentItem()
-        if not selected_item:
+        current_folder = self.folderSelect_edit.currentText()
+        if not current_folder:
             QMessageBox.warning(self, "Atenção", "Selecione uma pasta para editar!")
             return
 
-        current_folder = selected_item.text()
         new_name = self.folderNameInput_edit.text().strip()
         new_color = self.folderColor_edit if self.folderColor_edit else None
 
@@ -543,21 +604,21 @@ class EditServersWidget(QWidget):
 
         self.saveData()
         self.folderNameInput_edit.clear()
-        self.folderColorLabel_edit.setText("Nova cor: ")
+
         self.folderColor_edit = ""
         self.refreshFolderList()
 
 
     def onRemoveFolder(self):
-        selected_item = self.folderList_edit.currentItem()
-        if not selected_item:
+        folder_to_remove = self.folderSelect_edit.currentText()
+        if not folder_to_remove:
             QMessageBox.warning(self, "Atenção", "Selecione uma pasta para remover!")
             return
 
-        folder_to_remove = selected_item.text()
         remove_folder_by_name(folder_to_remove)
         self.saveData()
         self.refreshFolderList()
+
 
 
 # Exemplo de teste (opcional):

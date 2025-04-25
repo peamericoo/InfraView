@@ -1,6 +1,9 @@
 # monitor.py (Lógica adaptativa híbrida ICMP + TCP SYN Check com logging detalhado)
 import asyncio
 import platform
+import subprocess
+CREATE_NO_WINDOW = subprocess.CREATE_NO_WINDOW if platform.system().lower() == "windows" else 0
+
 import re
 import logging
 from typing import Tuple
@@ -21,8 +24,10 @@ async def async_ping(ip: str, timeout: int = 2) -> Tuple[bool, int]:
         proc = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            creationflags=CREATE_NO_WINDOW
         )
+
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout + 1)
         output = stdout.decode('utf-8', errors='replace')
         success = "ttl=" in output.lower() or "bytes from" in output.lower()
