@@ -104,18 +104,14 @@ func (ps *PingServer) ResumeServer(ctx context.Context, req *pb.ResumeRequest) (
 }
 
 func (ps *PingServer) StreamStatus(req *pb.StatusRequest, stream pb.PingService_StreamStatusServer) error {
-	ips := req.GetIps()
-
-	chans := []<-chan *pb.StatusUpdate{}
-	ps.mu.Lock()
-	for _, ip := range ips {
-		if ch, ok := ps.statusCh[ip]; ok {
+	for {
+		ps.mu.Lock()
+		chans := []<-chan *pb.StatusUpdate{}
+		for _, ch := range ps.statusCh {
 			chans = append(chans, ch)
 		}
-	}
-	ps.mu.Unlock()
+		ps.mu.Unlock()
 
-	for {
 		for _, ch := range chans {
 			select {
 			case update := <-ch:
@@ -128,6 +124,7 @@ func (ps *PingServer) StreamStatus(req *pb.StatusRequest, stream pb.PingService_
 		time.Sleep(500 * time.Millisecond)
 	}
 }
+
 
 func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<- *pb.StatusUpdate) {
 	for {

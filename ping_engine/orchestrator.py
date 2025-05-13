@@ -67,10 +67,11 @@ class PingOrchestrator:
 
     async def stream_status(self, ip_list):
         if self.stream_task:
-            self.stream_task.cancel()
-            try:
-                await self.stream_task
-            except asyncio.CancelledError:
+            if self.stream_task:
+                self.stream_task.cancel()
+                await asyncio.sleep(0.1)  # Dá tempo do cancelamento ocorrer
+                self.stream_task = None
+
                 print("[ORCHESTRATOR] stream_status anterior cancelado com sucesso")
 
         self.stream_task = asyncio.create_task(self._stream_loop(ip_list))
