@@ -1,5 +1,6 @@
 from core.database import remove_server_by_name
 from PyQt5.QtWidgets import QInputDialog, QMessageBox
+from ping_engine.controller import remove_server_live  # novo
 
 def remove_server(main_window):
     server_name, ok = QInputDialog.getText(main_window, "Remover Servidor", "Digite o Nome do servidor a remover:")
@@ -24,10 +25,7 @@ def remove_server(main_window):
         QMessageBox.critical(main_window, "Erro", f"Erro ao remover o servidor: {e}")
         return
 
-    # Atualiza a engine diretamente via MainWindow
-    if hasattr(main_window, "engine"):
-        main_window.engine.reload_servers()
+    remove_server_live(server_name)  # remove também da engine
 
     if hasattr(main_window, "reload_servers_data"):
         main_window.reload_servers_data()
-

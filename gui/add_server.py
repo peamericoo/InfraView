@@ -8,7 +8,7 @@ import logging
 from core.utils import validate_ip, resolve_and_ping
 from core.database import insert_server, insert_folder
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QColorDialog
-
+from ping_engine.controller import add_server_live  # novo
 
 def is_valid_ip(ip):
     try:
@@ -17,14 +17,10 @@ def is_valid_ip(ip):
     except ValueError:
         return False
 
-from core.database import insert_server, insert_folder
-
 def refresh_from_external_change(self):
     print("[MainWindow] Detecção de nova entrada via add_server_dialog.")
     self.reload_servers_data()
-    if not self.monitor_paused:
-        from ping_engine.interface import get_orchestrator
-        get_orchestrator().reload_servers([{"ip": ip} for ip in self.servers])
+    # Engine agora é atualizada diretamente no ato da adição, não precisa mais aqui
 
 def add_server_dialog(parent):
     ip_or_domain, ok = QInputDialog.getText(
@@ -61,13 +57,7 @@ def add_server_dialog(parent):
         insert_folder(folder_name, folder_color.name())
 
     insert_server(name, ip_candidate, folder_name)
-
-    from ping_engine import interface
-    interface.reload_servers()
-
+    add_server_live(ip_candidate)  # adiciona à engine imediatamente
 
     if hasattr(parent, "refresh_from_external_change"):
         parent.refresh_from_external_change()
-
-
-

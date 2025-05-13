@@ -3,6 +3,7 @@ import json
 import socket
 import ipaddress
 import logging
+from ping_engine.controller import add_server_live, remove_server_live, edit_server_live 
 from core.logger import logger
 from core.utils import resolve_and_ping
 from core.database import (
@@ -435,6 +436,7 @@ class EditServersWidget(QWidget):
             return
 
         insert_server(name, resolved_ip, selected_folder)
+        add_server_live(resolved_ip)
         self.saveData()
         self.serverNameInput_add.clear()
         self.serverIPInput_add.clear()
@@ -478,6 +480,9 @@ class EditServersWidget(QWidget):
                 return
 
         update_server_info(current_name, new_name or None, resolved_ip, None)
+
+        if resolved_ip:
+            edit_server_live(current_name, resolved_ip)
 
         self.saveData()
         self.refreshEditCombo()
@@ -535,13 +540,11 @@ class EditServersWidget(QWidget):
         # Remove todos de uma vez
         for name in names_to_remove:
             remove_server_by_name(name)
+            remove_server_live(name)
 
-        # Atualiza toda a interface e sincroniza o monitoramento uma única vez
         self.saveData()
         self.refreshEditCombo()
         self.refreshRemoveList()
-
-        # Força sincronização completa com a GUI principal
         self.notificar_gui_principal()
 
 

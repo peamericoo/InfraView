@@ -9,6 +9,7 @@ from core.updater import verificar_e_atualizar
 from core.auth_manager import is_password_set, criar_hash_senha, verificar_senha
 from core.db_protector import load_into_memory
 import core.database as database
+from core.engine_boot import launch_engine  # novo
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -34,6 +35,9 @@ def main():
         # Verifica atualizações
         verificar_e_atualizar()
 
+        # Inicia a engine Go, se necessário
+        launch_engine()
+
         # Prompt de senha (criar ou autenticar)
         senha = solicitar_senha()
         if not senha:
@@ -47,7 +51,6 @@ def main():
         # Garante criação das tabelas se for primeira execução
         from core.database import create_tables
         create_tables()
-
 
         print("Instanciando MainWindow...")
         window = MainWindow()
