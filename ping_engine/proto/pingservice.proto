@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+option go_package = "infraview/pingservice;pingpb";
+
+package pingpb;
+
+service PingService {
+  rpc AddServer (AddRequest) returns (Ack);
+  rpc RemoveServer (RemoveRequest) returns (Ack);
+  rpc PauseServer (PauseRequest) returns (Ack);
+  rpc ResumeServer (ResumeRequest) returns (Ack);
+  rpc StreamStatus (StatusRequest) returns (stream StatusUpdate);
+}
+
+message AddRequest {
+  string ip = 1;
+}
+
+message RemoveRequest {
+  string ip = 1;
+}
+
+message PauseRequest {
+  string ip = 1;
+}
+
+message ResumeRequest {
+  string ip = 1;
+}
+
+message StatusRequest {
+  repeated string ips = 1;
+}
+
+message StatusUpdate {
+  string ip = 1;
+  double latency = 2;
+  bool online = 3;
+  string status = 4;
+  string timestamp = 5;
+}
+
+message Ack {
+  bool success = 1;
+  string message = 2;
+}
