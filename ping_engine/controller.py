@@ -29,3 +29,9 @@ def reload_all_servers_from_db():
     loop = get_orchestrator().loop
     ip_list = [{"ip": row[1]} for row in get_all_servers()]
     asyncio.run_coroutine_threadsafe(get_orchestrator().reload_servers(ip_list), loop)
+
+def add_server_and_refresh(ip: str):
+    loop = get_orchestrator().loop
+    orchestrator = get_orchestrator()
+    asyncio.run_coroutine_threadsafe(orchestrator.add_server(ip), loop)
+    asyncio.run_coroutine_threadsafe(orchestrator.restart_stream(), loop)

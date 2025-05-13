@@ -15,7 +15,8 @@ class PingOrchestrator:
         self.stub = None
         self.status_callbacks = []
         self.callback = None
-
+        self.stream_task = None
+        self.ready = False
 
     async def connect(self):
         self.stub = pingservice_pb2_grpc.PingServiceStub(await self.channel.__aenter__())
@@ -34,7 +35,10 @@ class PingOrchestrator:
         logger.debug("RemoveServer: %s", ack.message)
         return ack.success
 
-    async def stream_status(self, ip_list: list[str]):
+    def add_status_callback(self, coro):
+        self.status_callbacks.append(coro)
+
+    async def _stream_loop(self, ip_list):
         if self.stub is None:
             print("[ERRO] stream_status: stub não está conectado")
             return
@@ -61,13 +65,28 @@ class PingOrchestrator:
         except grpc.aio.AioRpcError as e:
             print("[ERRO] Falha no stream_status:", e)
 
-    def add_status_callback(self, coro):
-        self.status_callbacks.append(coro)
+    async def stream_status(self, ip_list):
+        if self.stream_task:
+            self.stream_task.cancel()
+            try:
+                await self.stream_task
+            except asyncio.CancelledError:
+                print("[ORCHESTRATOR] stream_status anterior cancelado com sucesso")
 
-    def stream_status_background(self, ip_list: list[str]):
-        async def _run():
-            await self.stream_status(ip_list)
-        asyncio.create_task(_run())
+        self.stream_task = asyncio.create_task(self._stream_loop(ip_list))
+
+    async def restart_stream(self):
+        from core.database import get_all_servers
+        ips = [row[1] for row in get_all_servers()]
+        await self.stream_status(ips)
+
+    async def reload_servers(self, ip_list: list[dict]):
+        for item in ip_list:
+            await self.remove_server(item["ip"])
+            await self.add_server(item["ip"])
+
+        print("[ORCHESTRATOR] reiniciando stream_status após reload_servers")
+        await self.stream_status([item["ip"] for item in ip_list])
 
     async def wait_until_ready(self):
         while not self.ready:
@@ -75,14 +94,6 @@ class PingOrchestrator:
 
     async def close(self):
         await self.channel.__aexit__(None, None, None)
-
-    async def reload_servers(self, ip_list: list[dict]):
-        for item in ip_list:
-            await self.remove_server(item["ip"])
-            await self.add_server(item["ip"])
-        
-        print("[ORCHESTRATOR] reiniciando stream_status após reload_servers")
-        await self.stream_status([item["ip"] for item in ip_list])
 
 
 # Executado uma vez para garantir que o banco existe
@@ -93,5 +104,3 @@ async def status_handler(data):
     data["status"] = analytics.analyze_ping(data)
     database_access.save_ping_result(data)
     print(f"[PING] {data['ip']} → {data['status']} ({data['latency']}ms)")
-
-
