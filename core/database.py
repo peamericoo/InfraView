@@ -180,10 +180,16 @@ def update_server_folder(server_name, folder_name):
 def remove_server_by_name(server_name):
     with get_db_connection() as conn:
         c = conn.cursor()
+        # Buscar IP antes de deletar
+        c.execute("SELECT ip FROM servers WHERE name = ?", (server_name,))
+        result = c.fetchone()
+        if not result:
+            return None
+        ip = result[0]
+        # Apagar servidor
         c.execute("DELETE FROM servers WHERE name = ?", (server_name,))
-        affected = c.rowcount
         conn.commit()
-        return affected > 0
+        return ip
 
 # ========================
 # Migração a partir de JSON

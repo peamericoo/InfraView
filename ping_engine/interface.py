@@ -59,11 +59,21 @@ async def _handle_status(update_dict):
     """
     global _ping_snapshot
 
+    current_ips = list_servers()
+
     for ip, data in update_dict.items():
+        if ip not in current_ips:
+            continue  # Ignora updates de IPs já removidos
+
         data["status"] = analytics.analyze_ping(data)
         database_access.save_ping_result(data)
         cache.update(ip, data["status"], data["latency"])
         _ping_snapshot[ip] = data
+
+    # Remove IPs que não estão mais ativos
+    for ip in list(_ping_snapshot.keys()):
+        if ip not in current_ips:
+            _ping_snapshot.pop(ip, None)
 
     if _callback:
         _callback(_ping_snapshot.copy())

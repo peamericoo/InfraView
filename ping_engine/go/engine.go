@@ -152,7 +152,13 @@ func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<-
 				latency := 0.0
 				if online {
 					stats := pinger.Statistics()
-					latency = float64(stats.AvgRtt.Milliseconds())
+					if len(stats.Rtts) > 0 && stats.AvgRtt > 0 {
+						latency = float64(stats.AvgRtt.Milliseconds())
+					} else {
+						// Ping considerado inválido apesar de 'online'
+						latency = -1 // ou continue
+						online = false
+					}
 				}
 
 				status := &pb.StatusUpdate{

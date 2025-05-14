@@ -17,15 +17,15 @@ def remove_server(main_window):
         return
 
     try:
-        removed = remove_server_by_name(server_name)
-        if not removed:
+        ip = remove_server_by_name(server_name)
+        if not ip:
             QMessageBox.critical(main_window, "Erro", f"Servidor '{server_name}' não encontrado no banco de dados.")
             return
     except Exception as e:
         QMessageBox.critical(main_window, "Erro", f"Erro ao remover o servidor: {e}")
         return
 
-    remove_server_live(server_name)  # remove também da engine
+    remove_server_live(ip)  # Agora usando o IP correto
 
     if hasattr(main_window, "reload_servers_data"):
         main_window.reload_servers_data()
