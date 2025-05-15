@@ -1,10 +1,14 @@
-from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox, QStackedLayout, QWidget, QApplication, QFrame)
-from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush
-from PyQt5.QtWidgets import QGraphicsDropShadowEffect, QGraphicsOpacityEffect
+from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout,
+                             QHBoxLayout, QMessageBox, QStackedLayout, QWidget,
+                             QApplication, QFrame, QToolButton, QStyle, QAction)
+
+from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush, QIcon
+from PyQt5.QtWidgets import QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QAction, QSizePolicy
 from PyQt5.QtCore import Qt, QPropertyAnimation, QAbstractAnimation, QRect, QTimer, QParallelAnimationGroup, QEasingCurve, QPoint
 from core.db_protector import load_into_memory
 import re
 import random
+import os
 import logging
 from core.auth_manager import verificar_senha as validar_senha, criar_hash_senha
 from core.password_reset import redefinir_senha
@@ -112,12 +116,14 @@ class PasswordPrompt(QDialog):
         self.page_unlock = QWidget()
         layout_unlock = QVBoxLayout()
         self.page_unlock.setLayout(layout_unlock)
+        layout_unlock.setContentsMargins(0, 20, 0, 0)   # topo uniforme
         layout_unlock.setSpacing(14)
-        label_unlock = QLabel("Digite sua senha para desbloquear o banco:")
+        label_unlock = QLabel("Bem-vindo de volta! Digite sua chave para abrir o cofre:")
         label_unlock.setProperty("title", True)
         layout_unlock.addWidget(label_unlock)
         self.input_unlock = QLineEdit()
-        self.input_unlock.setEchoMode(QLineEdit.Password)
+        self._attach_eye(self.input_unlock)
+        self.input_unlock.returnPressed.connect(self.confirmar_desbloqueio)
         layout_unlock.addWidget(self.input_unlock)
         btn_unlock = QPushButton("Desbloquear")
         btn_unlock.clicked.connect(self.confirmar_desbloqueio)
@@ -130,12 +136,15 @@ class PasswordPrompt(QDialog):
         self.page_senha = QWidget()
         layout_senha = QVBoxLayout()
         self.page_senha.setLayout(layout_senha)
+        layout_senha.setContentsMargins(0, 20, 0, 0)
         layout_senha.setSpacing(10)
-        label_senha = QLabel("Crie uma senha para proteger seu banco de dados:")
+        label_senha = QLabel("Crie sua chave-mestra para blindar seus dados:")
         label_senha.setProperty("title", True)
         layout_senha.addWidget(label_senha)
         self.input_senha = QLineEdit()
         self.input_senha.setEchoMode(QLineEdit.Password)
+        self._attach_eye(self.input_senha)
+        self.input_senha.returnPressed.connect(self.verificar_primeiro)
         self.input_senha.textChanged.connect(self.atualizar_validacao)
         layout_senha.addWidget(self.input_senha)
         self.requisitos = {
@@ -155,12 +164,15 @@ class PasswordPrompt(QDialog):
         self.page_confirmar = QWidget()
         layout_conf = QVBoxLayout()
         self.page_confirmar.setLayout(layout_conf)
+        layout_conf.setContentsMargins(0, 20, 0, 0)
         layout_conf.setSpacing(10)
-        label_conf = QLabel("Confirme sua nova senha:")
+        label_conf = QLabel("Repita a chave-mestra para garantir:")
         label_conf.setProperty("title", True)
         layout_conf.addWidget(label_conf)
         self.input_confirmar = QLineEdit()
         self.input_confirmar.setEchoMode(QLineEdit.Password)
+        self._attach_eye(self.input_confirmar)
+        self.input_confirmar.returnPressed.connect(self.verificar_confirmacao)
         layout_conf.addWidget(self.input_confirmar)
         btn_finalizar = QPushButton("Finalizar")
         btn_finalizar.clicked.connect(self.verificar_confirmacao)
@@ -170,13 +182,15 @@ class PasswordPrompt(QDialog):
         self.page_verificar_antiga = QWidget()
         layout_antiga = QVBoxLayout()
         layout_antiga.setSpacing(10)
-        layout_antiga.setContentsMargins(10, 10, 10, 10)
+        layout_antiga.setContentsMargins(0, 20, 0, 0)
         self.page_verificar_antiga.setLayout(layout_antiga)
-        label_antiga = QLabel("Para redefinir, informe sua senha atual:")
+        label_antiga = QLabel("Primeiro, confirme sua chave atual:")
         label_antiga.setProperty("title", True)
         layout_antiga.addWidget(label_antiga)
         self.input_antiga = QLineEdit()
         self.input_antiga.setEchoMode(QLineEdit.Password)
+        self._attach_eye(self.input_antiga)
+        self.input_antiga.returnPressed.connect(self.validar_antiga)
         layout_antiga.addWidget(self.input_antiga)
         btn_verificar_antiga = QPushButton("Verificar")
         btn_verificar_antiga.clicked.connect(self.validar_antiga)
@@ -185,15 +199,18 @@ class PasswordPrompt(QDialog):
 
         self.page_intro = QWidget()
         layout_intro = QVBoxLayout()
-        layout_intro.setAlignment(Qt.AlignCenter)
+        layout_intro.setContentsMargins(0, 20, 0, 0)   # mesmo topo
+        layout_intro.setSpacing(14)
         self.page_intro.setLayout(layout_intro)
-        label_intro = QLabel("Bem-vindo ao InfraView\nVamos começar!")
+
+        label_intro = QLabel("Bem-vindo ao InfraView!\nVamos preparar sua segurança")
         label_intro.setProperty("title", True)
-        label_intro.setAlignment(Qt.AlignCenter)
         layout_intro.addWidget(label_intro)
+
         btn_intro = QPushButton("Próximo")
         btn_intro.clicked.connect(lambda: self.mudar_pagina_animado(1))
-        layout_intro.addWidget(btn_intro, alignment=Qt.AlignCenter)
+        layout_intro.addWidget(btn_intro, alignment=Qt.AlignRight)
+
         self.stack.addWidget(self.page_intro)
         for i in range(self.stack.count()):
             w = self.stack.widget(i)
@@ -224,6 +241,11 @@ class PasswordPrompt(QDialog):
         self.gradient_timer = QTimer(self)
         self.gradient_timer.timeout.connect(self.atualizar_degrade)
         self.gradient_timer.start(40)
+        
+        # ─── Bloqueia redimensionamento ───
+        self.adjustSize()               # garante tamanho mínimo ideal
+        self.setFixedSize(self.size())  # trava largura e altura
+
 
     def ativar_redefinicao(self):
         logger.debug("[BTN] Botão 'Redefinir senha' clicado – ativando fluxo de redefinição")
@@ -247,6 +269,26 @@ class PasswordPrompt(QDialog):
         rect = QRect(frame_geom.left(), frame_geom.top(), frame_geom.width(), frame_geom.height())
         rect = rect.adjusted(-30, -30, 30, 30)
         painter.fillRect(rect, brush)
+
+        # ───────────────────────── olho (show/hide) ─────────────────────────
+    def _attach_eye(self, line_edit: QLineEdit):
+        """Adiciona ação trailing que alterna visibilidade da senha."""
+        assets_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
+        eye_open   = QIcon(os.path.join(assets_dir, "eye_open.png"))
+        eye_closed = QIcon(os.path.join(assets_dir, "eye_closed.png"))
+
+        act = QAction(eye_closed, "Mostrar / ocultar senha", line_edit)
+        act.setCheckable(True)
+
+        def toggle(checked):
+            line_edit.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+            act.setIcon(eye_open if checked else eye_closed)
+
+        act.toggled.connect(toggle)
+
+        # alinhamento automático no lado direito
+        line_edit.addAction(act, QLineEdit.TrailingPosition)
+        line_edit.setEchoMode(QLineEdit.Password)
 
     def atualizar_validacao(self):
         estados = senha_valida_detalhada(self.input_senha.text())
