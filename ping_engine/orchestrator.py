@@ -5,6 +5,8 @@ import traceback
 import grpc
 from datetime import datetime
 import time
+from ping_engine import scheduler
+import time
 from ping_engine import analytics, database_access, scheduler
 from ping_engine.go.infraview.pingservice import pingservice_pb2, pingservice_pb2_grpc
 from ping_engine import database_access
@@ -64,27 +66,30 @@ class PingOrchestrator:
     def add_status_callback(self, coro):
         self.status_callbacks.append(coro)
 
+
     async def _stream_loop(self, ip_list):
         if self.stub is None:
             logger.error("stream_status: stub não está conectado")
             return
 
-        try:
-            req = pingservice_pb2.StatusRequest(ips=ip_list)
+        while True:
+            # === AQUI: distribua os pings de acordo com o escalonamento ===
+            ips_to_ping = scheduler.distribute_pings(self.profiles)
+            if not ips_to_ping:
+                await asyncio.sleep(0.5)
+                continue
+            req = pingservice_pb2.StatusRequest(ips=ips_to_ping)
             stream = self.stub.StreamStatus(req)
+            logger.info(f"Enviando para ping só os IPs escalonados agora: {ips_to_ping}")
 
-            logger.info("[ORCHESTRATOR] stream_status iniciado — recebendo atualizações...")
             async for update in stream:
-                update_data = {
-                    update.ip: {
-                        "ip": update.ip,
-                        "latency": update.latency,
-                        "online": update.online,
-                        "status": update.status,
-                        "timestamp": update.timestamp
-                    }
-                }
-                # >>>>>>>>>>>>>>>>> PIPELINE DE DECISÃO <<<<<<<<<<<<<<<<<<
+                update_data = {update.ip: {
+                    "ip": update.ip,
+                    "latency": update.latency,
+                    "online": update.online,
+                    "status": update.status,
+                    "timestamp": update.timestamp
+                }}
                 try:
                     processed_data = self.process_update(update_data)
                 except Exception as e:
@@ -92,11 +97,9 @@ class PingOrchestrator:
                     logger.debug(traceback.format_exc())
                     continue
 
-                # Notifica callbacks e interface (interface.py)
                 for cb in self.status_callbacks:
                     await cb(processed_data)
-        except grpc.aio.AioRpcError as e:
-            logger.error(f"Falha no stream_status: {e}")
+            await asyncio.sleep(0.5)  # para não travar o loop
 
     async def stream_status(self, ip_list):
         if self.stream_task:
@@ -142,6 +145,7 @@ class PingOrchestrator:
             "failures": [],
             "activity_window": None,  # (hora_inicio, hora_fim)
             "alerts": [],
+            "ultimos_alertas": {},
             # ... futuro: perfil horário, tags, etc.
         }
 
@@ -236,12 +240,17 @@ class PingOrchestrator:
                             profile.pop("obs_start_time", None)
             elif profile["status"] == "estável":
                 profile["stable_count"] += 1
-                if profile["stable_count"] >= 30:  # exige mais pings estáveis
-                    profile["ping_interval"] = 30  # 30s por padrão
+                ultimos = profile.setdefault("ultimos_alertas", {})
+                ultimo_promovido = ultimos.get("promocao_estavel", 0)
+                if profile["stable_count"] >= 30 and not profile.get("promovido_estavel") and time.time() - ultimo_promovido > 86400:
+                    profile["ping_interval"] = 15
                     profile["alerts"].append("Frequência reduzida para 30s — estável")
                     database_access.save_engine_event(ip, "info", "Frequência reduzida para 30s — estável", profile)
+                    profile["promovido_estavel"] = True
+                    ultimos["promocao_estavel"] = time.time()
                 else:
-                    profile["ping_interval"] = 10  # ainda em observação, ping mais rápido
+                    profile["ping_interval"] = 10
+            # ainda em observação, ping mais rápido
             else:
                 profile["stable_count"] = 0
                 profile["ping_interval"] = scheduler.get_ping_interval(profile["status"])
@@ -283,11 +292,14 @@ class PingOrchestrator:
         
              # ----- Latência Crescente (Cenário 8) -----
             if profile["status"] == "risco crescente":
-                if "watch_risk_start" not in profile:
+                ultimos = profile.setdefault("ultimos_alertas", {})
+                ultimo_risco = ultimos.get("risco_crescente", 0)
+                if "watch_risk_start" not in profile and (time.time() - ultimo_risco > 1800):  # 30 min
                     profile["watch_risk_start"] = time.time()
                     profile["alerts"].append("Atenção: latência está subindo, possível falha próxima.")
                     database_access.save_engine_event(ip, "alerta", "Latência subindo, risco de falha.", profile)
-                if time.time() - profile["watch_risk_start"] < 3600:
+                    ultimos["risco_crescente"] = time.time()
+                if time.time() - profile.get("watch_risk_start", 0) < 3600:
                     profile["ping_interval"] = 10
                 else:
                     profile.pop("watch_risk_start", None)
@@ -296,18 +308,33 @@ class PingOrchestrator:
 
             # ----- Falha Intermitente (Cenário 7) -----
             if analytics.is_intermitente(profile["history"]):
-                profile["status"] = "instável"
-                profile["alerts"].append("Falha intermitente detectada (quedas recorrentes).")
-                profile["ping_interval"] = 10
-                database_access.save_engine_event(ip, "alerta", "Falha intermitente detectada.", profile)
+                ultimos = profile.setdefault("ultimos_alertas", {})
+                ultimo_intermitente = ultimos.get("falha_intermitente", 0)
+                intervalo_min = 1800  # 30 minutos em segundos
+
+                if time.time() - ultimo_intermitente > intervalo_min:
+                    profile["status"] = "instável"
+                    alerta = "Falha intermitente detectada (quedas recorrentes)."
+                    if alerta not in profile["alerts"]:
+                        profile["alerts"].append(alerta)
+                    profile["ping_interval"] = 10
+                    database_access.save_engine_event(ip, "alerta", alerta, profile)
+                    ultimos["falha_intermitente"] = time.time()
 
             # ----- Pico de Latência Diário (Cenário 2) -----
             pico_horario = analytics.detecta_pico_diario(profile["history"])
             if pico_horario:
                 alerta = f"Latência alta prevista às {pico_horario}h (pico recorrente detectado)."
-                profile["alerts"].append(alerta)
+                agora = time.time()
+                ultimos = profile.setdefault("ultimos_alertas", {})
+                ultimo_pico = ultimos.get("pico_diario", 0)
+                # Só alerta se faz >1h do último alerta desse tipo
+                if agora - ultimo_pico > 3600:
+                    if alerta not in profile["alerts"]:
+                        profile["alerts"].append(alerta)
+                        database_access.save_engine_event(ip, "alerta", alerta, profile)
+                    ultimos["pico_diario"] = agora
                 profile["ping_interval"] = 10
-                database_access.save_engine_event(ip, "alerta", alerta, profile)
 
         return update_data
     
