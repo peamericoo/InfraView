@@ -89,3 +89,14 @@ def save_engine_event(ip, event_type, message, details=None):
             VALUES (?, ?, ?, ?)
         """, (ip, event_type, message, json.dumps(details) if details else None))
         conn.commit()
+
+def delete_server_data(ip):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        # Remove histórico de ping
+        cursor.execute("DELETE FROM ping_results WHERE ip = ?", (ip,))
+        # Remove perfil do IP
+        cursor.execute("DELETE FROM ip_profiles WHERE ip = ?", (ip,))
+        # Remove eventos da engine
+        cursor.execute("DELETE FROM engine_events WHERE ip = ?", (ip,))
+        conn.commit()
