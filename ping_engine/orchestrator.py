@@ -11,7 +11,7 @@ from ping_engine import analytics, database_access, scheduler
 from ping_engine.go.infraview.pingservice import pingservice_pb2, pingservice_pb2_grpc
 from ping_engine import database_access
 from ping_engine.controller import test_multiple_ports
-database_access.create_profile_and_event_tables()
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class PingOrchestrator:
         self.ready = False
 
         # Carrega perfis salvos do banco ao inicializar
-        self.profiles = database_access.load_all_ip_profiles()
+        self.profiles = {}
 
     async def connect(self):
         try:
@@ -62,6 +62,19 @@ class PingOrchestrator:
         except Exception as e:
             logger.error(f"Erro ao remover servidor {ip}: {e}")
             return False
+    
+        # ------------------------------------------------------------------
+    # Inicialização atrasada (chame logo após a senha ser validada)
+    # ------------------------------------------------------------------
+    def refresh_profiles_from_db(self):
+        """
+        Cria tabelas da engine (se ainda não existirem) e carrega
+        todos os perfis de IP salvos. Deve ser chamado SOMENTE
+        depois que core.database.set_connection() já estiver OK.
+        """
+        database_access.create_profile_and_event_tables()
+        self.profiles = database_access.load_all_ip_profiles()
+
 
     def add_status_callback(self, coro):
         self.status_callbacks.append(coro)
@@ -357,5 +370,3 @@ class PingOrchestrator:
         else:
             return f"Status: {status}"
 
-# Executado uma vez para garantir que o banco existe
-database_access.create_tables()

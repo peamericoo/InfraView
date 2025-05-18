@@ -1,74 +1,81 @@
-# main.py
+"""
+main.py
+=======
+Ponto de entrada do InfraView.
+
+Principais mudanças:
+• A PasswordPrompt agora já carrega/gera o banco em RAM e registra a
+  conexão global em core.database.set_connection(). main.py apenas
+  precisa recuperar a senha para salvar o dump no encerramento.
+• Não existe mais banco plaintext em disco.
+"""
+
 import sys
-import os
 import logging
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QDialog
+
 from gui.password_prompt import PasswordPrompt
 from gui.gui import MainWindow
 from core.updater import verificar_e_atualizar
-from core.auth_manager import is_password_set, criar_hash_senha, verificar_senha
-from core.db_protector import load_into_memory
-import core.database as database
-from core.engine_boot import launch_engine  # novo
+from core.engine_boot import launch_engine
+from core.auth_manager import is_password_set
+from core.db_protector import save_encrypted_dump
+from core.database import get_db_connection
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+)
 
-def solicitar_senha():
-    if is_password_set():
-        prompt = PasswordPrompt(modo_criacao=False)
-    else:
-        prompt = PasswordPrompt(modo_criacao=True)
 
+def solicitar_senha() -> str | None:
+    """
+    Abre o diálogo de senha (modo criação ou desbloqueio) e
+    devolve a senha inserida, ou None se o usuário cancelar.
+    """
+    prompt = PasswordPrompt(modo_criacao=not is_password_set())
     resultado = prompt.exec_()
-    if resultado != prompt.Accepted:
+
+    if resultado != QDialog.Accepted:
         return None
+    return prompt.get_password()
 
-    senha = prompt.get_password()
-    return senha
 
-def main():
+def main() -> None:
     try:
-        print("Inicializando QApplication...")
+        logger.info("Inicializando QApplication…")
         app = QApplication(sys.argv)
 
-        # Verifica atualizações
+        # Etapa 1 – atualizar se necessário
         verificar_e_atualizar()
 
-        # Inicia a engine Go, se necessário
+        # Etapa 2 – inicializar engine Go/ICMP (caso não esteja rodando)
         launch_engine()
 
-        # Prompt de senha (criar ou autenticar)
+        # Etapa 3 – diálogo de senha
         senha = solicitar_senha()
-        if not senha:
-            print("A inicialização foi cancelada pelo usuário.")
+        if senha is None:
+            logger.info("Aplicação encerrada: usuário cancelou a autenticação.")
             return
 
-        # Carrega o banco em memória
-        conn = load_into_memory(senha)
-        database._db = conn
-
-        # Garante criação das tabelas se for primeira execução
-        from core.database import create_tables
-        create_tables()
-
-        print("Instanciando MainWindow...")
+        # Etapa 4 – abrir GUI principal
+        logger.info("Instanciando janela principal…")
         window = MainWindow()
-        print("MainWindow instanciado.")
-
         window.show()
-        print("Janela exibida. Executando app...")
-        app.exec_()
 
-        print("Salvando banco antes de encerrar...")
-        from core.db_protector import save_encrypted_dump
-        save_encrypted_dump(database.get_db_connection(), senha)
+        exit_code = app.exec_()
 
-        print("Aplicação encerrada com sucesso.")
+        # Etapa 5 – dump criptografado
+        logger.info("Salvando dump criptografado antes de sair…")
+        save_encrypted_dump(get_db_connection(), senha)
 
-    except Exception as e:
-        print(f"Erro durante a execução: {e}")
-        logger.exception("Erro crítico em main.py")
+        sys.exit(exit_code)
+
+    except Exception as exc:
+        logger.exception("Erro crítico não tratado: %s", exc)
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

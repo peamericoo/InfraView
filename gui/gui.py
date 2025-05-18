@@ -85,7 +85,15 @@ class MainWindow(QMainWindow):
         # Inicializa conexão com o banco e vincula à engine
         db_conn = get_db_connection()
         
-        
+                # ------------------------------------------------------------------
+        # Cria tabelas da engine (ip_profiles / engine_events) se não existirem
+        # ------------------------------------------------------------------
+        try:
+            from ping_engine import database_access
+            database_access.create_profile_and_event_tables()
+        except Exception as e:
+            logging.getLogger(__name__).error("Falha ao criar tabelas da engine: %s", e)
+
 
         def gui_callback(update_dict):
             print("[GUI] Update recebido:", update_dict)  # para depuração

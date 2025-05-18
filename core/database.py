@@ -1,202 +1,261 @@
+"""
+core/database.py
+----------------
+ÚNICA fonte de verdade do banco de dados: uma conexão SQLite em memória
+compartilhada pela aplicação inteira.
+
+Como usar nos demais módulos:
+    from core.database import get_db_connection, insert_server, ...
+
+    conn = get_db_connection()   # devolve a mesma conexão ':memory:'
+"""
+from __future__ import annotations
+
 import sqlite3
-from pathlib import Path
 import json
-import os
-import sys
-import shutil
-from core.db_protector import get_decrypted_db_path
+from typing import Optional, List, Tuple, Dict, Any
 
-# ========================
-# Gerenciamento do caminho
-# ========================
-def get_executable_folder():
-    if hasattr(sys, '_MEIPASS'):
-        return Path(sys._MEIPASS)
-    return Path(__file__).resolve().parent.parent
-
-def get_db_path():
-    appdata = os.getenv('APPDATA') or os.getenv('LOCALAPPDATA')
-    if not appdata:
-        raise RuntimeError("Não foi possível localizar o APPDATA.")
-
-    infraview_folder = Path(appdata) / "InfraView"
-    infraview_folder.mkdir(exist_ok=True)
-
-    db_path = infraview_folder / "infra.db"
-
-    if not db_path.exists():
-        try:
-            source_db = get_executable_folder() / "data" / "infra.db"
-            shutil.copy(source_db, db_path)
-        except Exception as e:
-            print(f"Erro ao copiar infra.db inicial: {e}")
-
-    return db_path
-
-# ========================
-# Nova conexão padrão
-# ========================
-_db = None
-
-def get_db_connection():
-    return sqlite3.connect(get_decrypted_db_path(), check_same_thread=False)
+# ———————————————————————————————————————————————————————————
+# Conexão global em memória
+# ———————————————————————————————————————————————————————————
+_DB_CONN: Optional[sqlite3.Connection] = None
 
 
-# ========================
-# Criação de Tabelas
-# ========================
-def create_tables():
+def set_connection(conn: sqlite3.Connection) -> None:
+    """
+    Chamado exatamente uma vez (logo depois de descriptografar ou criar o banco).
+    """
+    global _DB_CONN
+    _DB_CONN = conn
+    _enable_pragmas(conn)
+    _create_tables_if_needed(conn)
+
+
+def get_db_connection() -> sqlite3.Connection:
+    """
+    Retorna a conexão única em memória. Lança erro se ainda não inicializada.
+    """
+    if _DB_CONN is None:
+        raise RuntimeError("Database connection has not been initialised.")
+    return _DB_CONN
+
+
+# ———————————————————————————————————————————————————————————
+# Configurações de PRAGMA
+# ———————————————————————————————————————————————————————————
+def _enable_pragmas(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+    # Tudo fica em memória; menos risco de corrupção e sem I/O extra
+    cur.execute("PRAGMA journal_mode = MEMORY;")
+    cur.execute("PRAGMA synchronous  = NORMAL;")
+    cur.close()
+
+
+# ———————————————————————————————————————————————————————————
+# Criação de esquema
+# ———————————————————————————————————————————————————————————
+def _create_tables_if_needed(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+
+    # ---- Pastas -------------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS folders (
+            id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            name   TEXT UNIQUE NOT NULL,
+            color  TEXT NOT NULL
+        );
+    """)
+
+    # ---- Servidores ---------------------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS servers (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            name      TEXT NOT NULL,
+            ip        TEXT NOT NULL,
+            folder_id INTEGER,
+            status    TEXT NOT NULL DEFAULT 'running',
+            FOREIGN KEY(folder_id) REFERENCES folders(id)
+        );
+    """)
+
+    # ---- Logs ICMP / SNMP (exemplo) ------------------------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ping_logs (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id  INTEGER NOT NULL,
+            latency_ms INTEGER,
+            success    INTEGER,
+            ts         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(server_id) REFERENCES servers(id)
+        );
+    """)
+
+    conn.commit()
+    cur.close()
+
+
+# Exposto apenas para casos especiais (ex.: migração de JSON)
+def create_tables() -> None:
+    """Garante que o schema exista (usa a conexão já inicializada)."""
+    _create_tables_if_needed(get_db_connection())
+
+
+# ======================================================================
+# CRUD – FOLDERS
+# ======================================================================
+def insert_folder(name: str, color: str) -> None:
     with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS folders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                color TEXT NOT NULL
-            )
-        ''')
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS servers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                ip TEXT NOT NULL,
-                folder_id INTEGER,
-                status TEXT NOT NULL DEFAULT 'running',
-                FOREIGN KEY(folder_id) REFERENCES folders(id)
-            )
-        ''')
+        conn.execute(
+            "INSERT OR IGNORE INTO folders (name, color) VALUES (?, ?);",
+            (name, color)
+        )
         conn.commit()
 
-# ========================
-# Funções para Pastas
-# ========================
-def insert_folder(name, color):
+
+def get_all_folders() -> List[Dict[str, str]]:
+    cur = get_db_connection().cursor()
+    cur.execute("SELECT name, color FROM folders;")
+    rows = cur.fetchall()
+    cur.close()
+    return [{"name": n, "color": c} for n, c in rows]
+
+
+def update_folder_name_and_color(
+    current_name: str,
+    new_name: str | None = None,
+    new_color: str | None = None
+) -> None:
+    if not (new_name or new_color):
+        return  # Nada a atualizar
+
+    fields, params = [], []
+    if new_name:
+        fields.append("name = ?")
+        params.append(new_name)
+    if new_color:
+        fields.append("color = ?")
+        params.append(new_color)
+
+    params.append(current_name)
+    query = f"UPDATE folders SET {', '.join(fields)} WHERE name = ?;"
+
     with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO folders (name, color) VALUES (?, ?)", (name, color))
+        conn.execute(query, tuple(params))
         conn.commit()
 
-def get_all_folders():
+
+def remove_folder_by_name(folder_name: str) -> None:
     with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("SELECT name, color FROM folders")
-        rows = c.fetchall()
-        return [{"name": row[0], "color": row[1]} for row in rows]
-
-def update_folder_name_and_color(current_name, new_name=None, new_color=None):
-    with get_db_connection() as conn:
-        c = conn.cursor()
-        update_fields = []
-        params = []
-
-        if new_name:
-            update_fields.append("name = ?")
-            params.append(new_name)
-
-        if new_color:
-            update_fields.append("color = ?")
-            params.append(new_color)
-
-        if not update_fields:
-            return  # Nada a atualizar
-
-        query = f"UPDATE folders SET {', '.join(update_fields)} WHERE name = ?"
-        params.append(current_name)
-        c.execute(query, tuple(params))
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM folders WHERE name = ?;", (folder_name,))
+        res = cur.fetchone()
+        if not res:
+            return
+        folder_id = res[0]
+        cur.execute("UPDATE servers SET folder_id = NULL WHERE folder_id = ?;", (folder_id,))
+        cur.execute("DELETE FROM folders WHERE id = ?;", (folder_id,))
         conn.commit()
+        cur.close()
 
-def remove_folder_by_name(folder_name):
-    with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("SELECT id FROM folders WHERE name = ?", (folder_name,))
-        result = c.fetchone()
-        if result:
-            folder_id = result[0]
-            c.execute("UPDATE servers SET folder_id = NULL WHERE folder_id = ?", (folder_id,))
-            c.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
-            conn.commit()
 
-# ========================
-# Funções para Servidores
-# ========================
-def insert_server(name, ip, folder_name=None, status="running"):
+# ======================================================================
+# CRUD – SERVERS
+# ======================================================================
+def insert_server(
+    name: str,
+    ip: str,
+    folder_name: str | None = None,
+    status: str = "running"
+) -> None:
     with get_db_connection() as conn:
-        c = conn.cursor()
+        cur = conn.cursor()
         folder_id = None
         if folder_name:
-            c.execute("SELECT id FROM folders WHERE name = ?", (folder_name,))
-            result = c.fetchone()
-            folder_id = result[0] if result else None
-        c.execute("INSERT INTO servers (name, ip, status, folder_id) VALUES (?, ?, ?, ?)",
-                  (name, ip, status, folder_id))
+            cur.execute("SELECT id FROM folders WHERE name = ?;", (folder_name,))
+            res = cur.fetchone()
+            folder_id = res[0] if res else None
+
+        cur.execute(
+            "INSERT INTO servers (name, ip, status, folder_id) VALUES (?,?,?,?);",
+            (name, ip, status, folder_id)
+        )
+        conn.commit()
+        cur.close()
+
+
+def get_all_servers() -> List[Tuple[Any, ...]]:
+    cur = get_db_connection().cursor()
+    cur.execute("""
+        SELECT s.name, s.ip, s.status, f.name, f.color
+          FROM servers s
+     LEFT JOIN folders f ON s.folder_id = f.id;
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    return rows
+
+
+def update_server_info(
+    current_name: str,
+    new_name: str | None = None,
+    new_ip: str | None = None,
+    new_status: str | None = None
+) -> None:
+    if not (new_name or new_ip or new_status):
+        return
+
+    fields, params = [], []
+    if new_name:
+        fields.append("name = ?")
+        params.append(new_name)
+    if new_ip:
+        fields.append("ip = ?")
+        params.append(new_ip)
+    if new_status:
+        fields.append("status = ?")
+        params.append(new_status)
+
+    params.append(current_name)
+    query = f"UPDATE servers SET {', '.join(fields)} WHERE name = ?;"
+
+    with get_db_connection() as conn:
+        conn.execute(query, tuple(params))
         conn.commit()
 
-def get_all_servers():
+
+def update_server_folder(server_name: str, folder_name: str) -> None:
     with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("""
-            SELECT s.name, s.ip, s.status, f.name, f.color
-            FROM servers s
-            LEFT JOIN folders f ON s.folder_id = f.id
-        """)
-        return c.fetchall()
-
-def update_server_info(current_name, new_name=None, new_ip=None, new_status=None):
-    with get_db_connection() as conn:
-        c = conn.cursor()
-        update_fields = []
-        params = []
-
-        if new_name:
-            update_fields.append("name = ?")
-            params.append(new_name)
-
-        if new_ip:
-            update_fields.append("ip = ?")
-            params.append(new_ip)
-
-        if new_status:
-            update_fields.append("status = ?")
-            params.append(new_status)
-
-        if not update_fields:
-            return  # Nada a atualizar
-
-        query = f"UPDATE servers SET {', '.join(update_fields)} WHERE name = ?"
-        params.append(current_name)
-        c.execute(query, tuple(params))
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM folders WHERE name = ?;", (folder_name,))
+        res = cur.fetchone()
+        if not res:
+            return
+        folder_id = res[0]
+        cur.execute("UPDATE servers SET folder_id = ? WHERE name = ?;", (folder_id, server_name))
         conn.commit()
+        cur.close()
 
-def update_server_folder(server_name, folder_name):
-    with get_db_connection() as conn:
-        c = conn.cursor()
-        c.execute("SELECT id FROM folders WHERE name = ?", (folder_name,))
-        result = c.fetchone()
-        if result:
-            folder_id = result[0]
-            c.execute("UPDATE servers SET folder_id = ? WHERE name = ?", (folder_id, server_name))
-            conn.commit()
 
-def remove_server_by_name(server_name):
+def remove_server_by_name(server_name: str) -> str | None:
     with get_db_connection() as conn:
-        c = conn.cursor()
-        # Buscar IP antes de deletar
-        c.execute("SELECT ip FROM servers WHERE name = ?", (server_name,))
-        result = c.fetchone()
-        if not result:
+        cur = conn.cursor()
+        cur.execute("SELECT ip FROM servers WHERE name = ?;", (server_name,))
+        res = cur.fetchone()
+        if not res:
             return None
-        ip = result[0]
-        # Apagar servidor
-        c.execute("DELETE FROM servers WHERE name = ?", (server_name,))
+        ip = res[0]
+        cur.execute("DELETE FROM servers WHERE name = ?;", (server_name,))
         conn.commit()
+        cur.close()
         return ip
 
-# ========================
-# Migração a partir de JSON
-# ========================
-def migrate_from_json(json_path):
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+
+# ======================================================================
+# Migração de JSON (opcional)
+# ======================================================================
+def migrate_from_json(json_path: str) -> None:
+    with open(json_path, "r", encoding="utf-8") as fp:
+        data = json.load(fp)
 
     create_tables()
 
@@ -204,4 +263,9 @@ def migrate_from_json(json_path):
         insert_folder(folder["name"], folder["color"])
 
     for server in data.get("servers", []):
-        insert_server(server["name"], server["ip"], server.get("folder"), server.get("status", "running"))
+        insert_server(
+            server["name"],
+            server["ip"],
+            server.get("folder"),
+            server.get("status", "running"),
+        )

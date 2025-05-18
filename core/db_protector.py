@@ -1,71 +1,92 @@
-# core/db_protector.py
+"""
+core/db_protector.py
+--------------------
+Responsável por:
+• Descriptografar infra_encrypted.enc → criar conexão ':memory:'
+• Gerar dump SQL da conexão em memória e salvar novamente criptografado
+
+Criptografia: Fernet (symmetric + autenticidade)
+A chave é derivada em core.auth_manager.get_fernet_key(password)
+"""
+
+from __future__ import annotations
 
 import sqlite3
+import os
 from pathlib import Path
+import logging
+
 from cryptography.fernet import Fernet
 from core.auth_manager import get_fernet_key
-import os
-import logging
 
 logger = logging.getLogger(__name__)
 
-ENC_PATH = Path(__file__).resolve().parent.parent / "data" / "infra_encrypted.enc"
+# Caminho FIXO do arquivo criptografado
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR.mkdir(exist_ok=True)
+ENC_PATH = DATA_DIR / "infra_encrypted.enc"
 
+
+# =============================================================================
+# Carregar banco em RAM
+# =============================================================================
 def load_into_memory(password: str) -> sqlite3.Connection:
-    logger.debug("Carregando banco em memória a partir de .enc")
-    key = get_fernet_key(password)
-    fernet = Fernet(key)
+    """
+    • Se infra_encrypted.enc existir → descriptografa → executa SQL dump
+    • Caso contrário → retorna conexão vazia ':memory:'
+    """
+    logger.debug("Carregando banco em memória a partir de %s", ENC_PATH.name)
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
 
     if not ENC_PATH.exists():
-        logger.warning("Arquivo .enc não encontrado, criando banco vazio")
-        return sqlite3.connect(":memory:", check_same_thread=False)
+        logger.info("Nenhum arquivo .enc encontrado – criando banco novo em RAM.")
+        return conn
 
-    with open(ENC_PATH, "rb") as f:
-        encrypted_data = f.read()
-
-    try:
-        decrypted = fernet.decrypt(encrypted_data)
-    except Exception as e:
-        logger.error("Falha ao descriptografar banco: %s", e)
-        raise ValueError("Senha incorreta ou dados corrompidos.")
-
-    sql_script = decrypted.decode("utf-8", errors="ignore")
-
-    conn = sqlite3.connect(":memory:", check_same_thread=False)
-    conn.executescript(sql_script)
-    logger.info("Banco carregado em memória com sucesso.")
-    return conn
-
-def dump_from_memory(conn: sqlite3.Connection) -> bytes:
-    logger.debug("Gerando dump SQL do banco em memória")
-    dump = "\n".join(conn.iterdump()).encode("utf-8")
-    return dump
-
-def save_encrypted_dump(conn: sqlite3.Connection, password: str):
-    logger.debug("Salvando banco criptografado em .enc")
     key = get_fernet_key(password)
     fernet = Fernet(key)
 
-    sql_dump = dump_from_memory(conn)
-    if len(sql_dump) < 10:
-        raise ValueError("Dump SQL inválido ou vazio.")
+    encrypted_data = ENC_PATH.read_bytes()
+    try:
+        decrypted_bytes: bytes = fernet.decrypt(encrypted_data)
+    except Exception as exc:
+        logger.error("Falha ao descriptografar banco: %s", exc)
+        raise ValueError("Senha incorreta ou dados corrompidos.") from exc
 
-    encrypted = fernet.encrypt(sql_dump)
+    sql_script = decrypted_bytes.decode("utf-8", errors="ignore")
+    conn.executescript(sql_script)
+    logger.info("Banco carregado na memória com sucesso.")
+    return conn
 
-    temp_path = ENC_PATH.with_suffix(".tmp")
-    with open(temp_path, "wb") as f:
-        f.write(encrypted)
 
-    os.replace(temp_path, ENC_PATH)
-    logger.info("Dump criptografado salvo com sucesso em %s", ENC_PATH)
+# =============================================================================
+# Persistir banco (dump → criptografa → grava .enc)
+# =============================================================================
+def _dump_sql(conn: sqlite3.Connection) -> bytes:
+    """Retorna dump completo do banco em formato bytes (UTF-8)."""
+    dump_text = "\n".join(conn.iterdump())
+    return dump_text.encode("utf-8")
 
-# ✅ Adicionado para compatibilidade com a engine
-def get_decrypted_db_path() -> Path:
+
+def save_encrypted_dump(conn: sqlite3.Connection, password: str) -> None:
     """
-    Retorna o caminho físico do banco já descriptografado (em uso na RAM).
+    Gera dump SQL do *conn*, criptografa com Fernet e sobrescreve infra_encrypted.enc.
+    Nunca deixa arquivo temporário descriptografado no disco.
     """
-    appdata = os.getenv('APPDATA') or os.getenv('LOCALAPPDATA')
-    if not appdata:
-        raise RuntimeError("APPDATA não localizado.")
+    logger.debug("Salvando dump criptografado em %s", ENC_PATH.name)
+    sql_bytes = _dump_sql(conn)
+    if len(sql_bytes) < 10:
+        raise ValueError("Dump SQL vazio ou inválido – nada foi salvo.")
 
-    return Path(appdata) / "InfraView" / "infra.db"
+    key = get_fernet_key(password)
+    fernet = Fernet(key)
+    encrypted = fernet.encrypt(sql_bytes)
+
+    tmp_path = ENC_PATH.with_suffix(".tmp")
+    tmp_path.write_bytes(encrypted)
+    os.replace(tmp_path, ENC_PATH)  # atomic move
+    logger.info("Dump criptografado salvo com sucesso.")
+
+
+# -----------------------------------------------------------------------------
+# NÃO há função get_decrypted_db_path — banco plaintext não é mais gerado.
+# -----------------------------------------------------------------------------
