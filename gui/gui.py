@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap, QColor, QFont, QPainter, QBrush, QPen
+from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSize, QEasingCurve, QSize, QTimer
+from PyQt5.QtWidgets import QFrame
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from ping_engine import interface
 from core.database import get_db_connection
@@ -48,6 +50,7 @@ def create_circle_pixmap(color: QColor, diameter=12) -> QPixmap:
 
 class MainWindow(QMainWindow):
     ping_update_signal = pyqtSignal(dict)  # sinal para atualizar a tabela com segurança
+    sefaz_update_signal = pyqtSignal(dict) 
     def __init__(self):
         super().__init__()
         self.monitor_paused = False
@@ -85,7 +88,7 @@ class MainWindow(QMainWindow):
         # Inicializa conexão com o banco e vincula à engine
         db_conn = get_db_connection()
         
-                # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # Cria tabelas da engine (ip_profiles / engine_events) se não existirem
         # ------------------------------------------------------------------
         try:
@@ -214,8 +217,33 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.stack, 1)
 
         self.main_content = self.createMainPage()
-        self.stack.addWidget(self.main_content)
-        
+        self.stack.addWidget(self.main_content)            # página Home
+        self.stack.setCurrentWidget(self.main_content)  
+
+        # ── inicia monitor da SEFAZ ─────────────────────────────── #
+        from core.sefaz_monitor import SefazConfig, SefazMonitor
+        import asyncio
+        import threading
+
+
+        cfg = SefazConfig(
+            uf="mt",
+            certificado_path=r"C:\Users\Pedro Américo\Documents\Certificado Serpal\Serpal_Certificado.pfx",
+            certificado_senha="19841607",
+            doc_type="nfe",
+            homologacao=True,
+        )
+
+        self.sefaz_monitor = SefazMonitor(cfg, on_update=self.sefaz_update_signal.emit)
+        # roda o monitor em loop asyncio próprio, dentro de uma thread daemon
+        threading.Thread(
+            target=lambda: asyncio.run(self.sefaz_monitor.start()),
+            daemon=True
+        ).start()
+
+        # ────────────────────────────────────────────────────────── #
+
+
         self.update_window_title()
 
         self.edit_servers_widget = EditServersWidget(self)
@@ -254,39 +282,38 @@ class MainWindow(QMainWindow):
 
 
     def createMainPage(self):
-        from PyQt5.QtWidgets import QScrollArea, QFrame
-
+        """Cria layout principal (esquerda: lista/erros -- direita: card SEFAZ + Hive)."""
         main_content = QWidget()
         main_content_layout = QHBoxLayout(main_content)
         main_content_layout.setContentsMargins(10, 10, 10, 10)
         main_content_layout.setSpacing(10)
 
-        # Widget esquerdo: tabela e registro de falhas
+        # ───────────────────────── WIDGET ESQUERDO ───────────────────────── #
         left_widget = QWidget()
         left_vbox = QVBoxLayout(left_widget)
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(10)
 
+        # Servidores monitorados
         group_servers = QGroupBox("Servidores Monitorados")
         group_servers_layout = QVBoxLayout(group_servers)
-        self.server_list = ServerListWidget(self, self.handleCardDoubleClick)
 
+        self.server_list = ServerListWidget(self, self.handleCardDoubleClick)
         self.server_scroll = QScrollArea()
         self.server_scroll.setWidgetResizable(True)
         self.server_scroll.setFrameShape(QFrame.NoFrame)
         self.server_scroll.setStyleSheet("background-color: transparent;")
         self.server_scroll.setWidget(self.server_list)
-
         group_servers_layout.addWidget(self.server_scroll)
         left_vbox.addWidget(group_servers)
 
+        # Falhas offline
         group_falhas = QGroupBox("Registro de Falhas Offline")
         group_falhas_layout = QVBoxLayout(group_falhas)
         self.offline_log_area = QScrollArea()
         self.offline_log_area.setWidgetResizable(True)
         self.offline_log_area.setStyleSheet("background-color: #1E1E1E; border: none;")
         self.offline_log_area.setMaximumHeight(400)
-          # ou o valor que você quiser
         self.offline_log_container = QWidget()
         self.offline_log_layout = QVBoxLayout(self.offline_log_container)
         self.offline_log_container.setStyleSheet("background-color: #252526;")
@@ -298,9 +325,13 @@ class MainWindow(QMainWindow):
 
         main_content_layout.addWidget(left_widget, 1)
 
-        # Widget direito: HiveView
+        # ───────────────────────── WIDGET DIREITO ───────────────────────── #
+        # 1. Card SEFAZ
+        self.sefaz_card = SefazStatusCard()
+        self.sefaz_update_signal.connect(self.sefaz_card.update_status)
+
+        # 2. HiveView (já existia)
         self.group_hive = QGroupBox("Visão Colmeia")
-        self.group_hive.setObjectName("group_hive")
         group_hive_layout = QVBoxLayout(self.group_hive)
 
         db_rows = get_all_servers()
@@ -309,12 +340,15 @@ class MainWindow(QMainWindow):
             for name, ip, status, folder, color in db_rows
         ]
         servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
-
         self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
-        main_content_layout.addWidget(self.group_hive, 1)
+
+        # 3. Sobrepõe o card na colmeia (canto inferior-direito)
+        overlay = HiveOverlay(self.group_hive, self.sefaz_card)
+        main_content_layout.addWidget(overlay, 1)
 
         return main_content
+
 
     def showEditServers(self):
         # Alterna para a tela de edição de servidores
@@ -928,6 +962,147 @@ class ServerListWidget(QWidget):
         for ip in sorted_ips:
             card = self.cards[ip]
             self.layout.addWidget(card)
+class HiveOverlay(QWidget):
+    """
+    Contêiner que exibe o HiveView em tela cheia e sobrepõe
+    um widget (card) no canto inferior-direito.
+    """
+    def __init__(self, hive_widget: QWidget, overlay_widget: QWidget, margin: int = 12):
+        super().__init__()
+        self._margin = margin
+        self._hive = hive_widget
+        self._overlay = overlay_widget
+
+        # Hive preenche tudo
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._hive)
+
+        # overlay é filho direto para ficar por cima
+        self._overlay.setParent(self)
+        self._overlay.installEventFilter(self)
+
+    # reposiciona o overlay sempre que redimensionar
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._reposition()
+
+    # ---------------- posicionamento --------------- #
+    def _reposition(self):
+        """Move o overlay p/ canto inf-dir respeitando margem."""
+        sz = self._overlay.size()
+        x  = max(self._margin, self.width()  - sz.width()  - self._margin)
+        y  = max(self._margin, self.height() - sz.height() - self._margin)
+        self._overlay.move(x, y)
+
+
+    def eventFilter(self, obj, event):
+        if obj is self._overlay and event.type() == QEvent.Resize:
+            self._reposition()
+        return super().eventFilter(obj, event)
+
+
+class SefazStatusCard(QFrame):
+    """
+    Retângulo bonito que cresce/encolhe ao passar o mouse.
+    • update_status(payload) → altera cor e texto.
+    """
+    _COLLAPSED = QSize(160, 56)
+    _EXPANDED  = QSize(320, 120)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # comece COM tamanho fixo (facilita animar "size")
+        self.setMinimumSize(self._COLLAPSED)   # tamanho mínimo
+        self.setMaximumSize(self._EXPANDED)    # tamanho máximo
+        self.resize(self._COLLAPSED)           # tamanho inicial visível
+
+
+        self.setStyleSheet("""
+            QFrame { background-color:#252526;
+                     border:2px solid #3C3C3C; border-radius:12px; }
+            QLabel#title   { font-size:16px; font-weight:bold; color:#FFFFFF; }
+            QLabel#status  { font-size:13px; color:#AAAAAA; }
+            QLabel#count   { font-size:11px; color:#BBBBBB; }
+        """)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(4)
+
+        self.title_lbl  = QLabel("SEFAZ MT – NFe", objectName="title")
+        self.status_lbl = QLabel("--", objectName="status")
+        self.count_lbl  = QLabel("",  objectName="count")
+        lay.addWidget(self.title_lbl)
+        lay.addWidget(self.status_lbl)
+        lay.addWidget(self.count_lbl)
+
+        # anima a PROPRIEDADE "size" (largura+altura) em vez de maximumSize
+        self._anim = QPropertyAnimation(self, b"size", self)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.setDuration(180)
+
+        # timer da contagem regressiva
+        self._cd_timer = QTimer(self)
+        self._cd_timer.timeout.connect(self._tick)
+        self._remaining = 0
+    
+
+    # ---------- animação de hover ----------
+    def enterEvent(self, ev):
+        self._anim.stop()
+        self._anim.setStartValue(self.size())
+        self._anim.setEndValue(self._EXPANDED)
+        self._anim.start()
+        super().enterEvent(ev)
+
+    def leaveEvent(self, ev):
+        self._anim.stop()
+        self._anim.setStartValue(self.size())
+        self._anim.setEndValue(self._COLLAPSED)
+        self._anim.start()
+        super().leaveEvent(ev)
+
+    # ---------- API pública ----------
+    def update_status(self, payload: dict):
+        cstat   = payload.get("status", "")
+        motivo  = payload.get("motivo", "--")
+        self._remaining = payload.get("next_in", 60)
+
+        self.status_lbl.setText(f"{cstat} – {motivo}")
+        self._update_count_label()
+
+        if cstat in {"107", "108"}:
+            color = "#2ECC71"
+        elif cstat in {"109", "110"}:
+            color = "#F1C40F"
+        else:
+            color = "#E74C3C"
+
+        self.setStyleSheet(self.styleSheet() + f"""
+            QFrame {{ border-color:{color}; }}
+            QLabel#status {{ color:{color}; }}
+        """)
+
+        # reinicia contagem
+        if self._cd_timer.isActive():
+            self._cd_timer.stop()
+        self._cd_timer.start(1000)   # 1 s
+
+    # ------------------- helpers ------------------- #
+    def _tick(self):
+        self._remaining -= 1
+        if self._remaining <= 0:
+            self._cd_timer.stop()
+            self.count_lbl.setText("consultando…")
+        else:
+            self._update_count_label()
+
+    def _update_count_label(self):
+        self.count_lbl.setText(f"🔄 próxima em {self._remaining:02d}s")
+
+
 
 if __name__ == "__main__":
     import sys

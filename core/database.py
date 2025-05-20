@@ -66,6 +66,17 @@ def _create_tables_if_needed(conn: sqlite3.Connection) -> None:
         );
     """)
 
+    # dentro de _create_tables_if_needed()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sefaz_status (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts         DATETIME DEFAULT CURRENT_TIMESTAMP,
+            doc_type   TEXT NOT NULL,          -- nfe | nfce
+            status     TEXT NOT NULL,          -- cStat
+            motivo     TEXT NOT NULL           -- xMotivo
+        );
+    """)
+
     # ---- Servidores ---------------------------------------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS servers (
@@ -269,3 +280,23 @@ def migrate_from_json(json_path: str) -> None:
             server.get("folder"),
             server.get("status", "running"),
         )
+
+# core/database.py
+def insert_sefaz_status(doc_type: str, status: str, motivo: str) -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO sefaz_status (doc_type, status, motivo) VALUES (?,?,?);",
+            (doc_type, status, motivo)
+        )
+        conn.commit()
+
+def get_latest_sefaz_status(doc_type: str = "nfe") -> Optional[Tuple[str, str, str]]:
+    cur = get_db_connection().cursor()
+    cur.execute(
+        "SELECT ts, status, motivo FROM sefaz_status "
+        "WHERE doc_type = ? ORDER BY ts DESC LIMIT 1;",
+        (doc_type,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    return row

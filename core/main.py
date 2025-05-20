@@ -8,8 +8,7 @@ Principais mudanças:
   conexão global em core.database.set_connection(). main.py apenas
   precisa recuperar a senha para salvar o dump no encerramento.
 • Não existe mais banco plaintext em disco.
-"""
-
+"""     
 import sys
 import logging
 from PyQt5.QtWidgets import QApplication, QDialog
