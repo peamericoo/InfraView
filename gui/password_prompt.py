@@ -42,7 +42,7 @@ class PasswordPrompt(QDialog):
             QDialog {
                 background-color: transparent;
                 font-family: 'Segoe UI';
-                font-size: 10pt;
+                font-size: 17pt;
                 color: #CCCCCC;
             }
             QLineEdit {
@@ -124,9 +124,9 @@ class PasswordPrompt(QDialog):
         layout_unlock.addWidget(label_unlock)
         self.input_unlock = QLineEdit()
         self._attach_eye(self.input_unlock)
-        self.input_unlock.returnPressed.connect(self.confirmar_desbloqueio)
         layout_unlock.addWidget(self.input_unlock)
         btn_unlock = QPushButton("Desbloquear")
+        btn_unlock.setDefault(True)  
         btn_unlock.clicked.connect(self.confirmar_desbloqueio)
         layout_unlock.addWidget(btn_unlock, alignment=Qt.AlignRight)
         btn_redefinir = QPushButton("Redefinir senha")
@@ -145,7 +145,6 @@ class PasswordPrompt(QDialog):
         self.input_senha = QLineEdit()
         self.input_senha.setEchoMode(QLineEdit.Password)
         self._attach_eye(self.input_senha)
-        self.input_senha.returnPressed.connect(self.verificar_primeiro)
         self.input_senha.textChanged.connect(self.atualizar_validacao)
         layout_senha.addWidget(self.input_senha)
         self.requisitos = {
@@ -158,8 +157,10 @@ class PasswordPrompt(QDialog):
             lbl.setStyleSheet("color: gray")
             layout_senha.addWidget(lbl)
         btn_proximo = QPushButton("Próximo")
-        btn_proximo.clicked.connect(self.verificar_primeiro)
-        layout_senha.addWidget(btn_proximo, alignment=Qt.AlignRight)
+        btn_proximo.clicked.connect(self.verificar_primeiro)          # única conexão
+        self.input_senha.returnPressed.connect(btn_proximo.click)     # Enter → botão
+        layout_senha.addWidget(btn_proximo, alignment=Qt.AlignRight)  # só um add
+
         self.stack.addWidget(self.page_senha)
 
         self.page_confirmar = QWidget()
@@ -173,11 +174,12 @@ class PasswordPrompt(QDialog):
         self.input_confirmar = QLineEdit()
         self.input_confirmar.setEchoMode(QLineEdit.Password)
         self._attach_eye(self.input_confirmar)
-        self.input_confirmar.returnPressed.connect(self.verificar_confirmacao)
         layout_conf.addWidget(self.input_confirmar)
         btn_finalizar = QPushButton("Finalizar")
         btn_finalizar.clicked.connect(self.verificar_confirmacao)
+        self.input_confirmar.returnPressed.connect(btn_finalizar.click)
         layout_conf.addWidget(btn_finalizar, alignment=Qt.AlignRight)
+
         self.stack.addWidget(self.page_confirmar)
 
         self.page_verificar_antiga = QWidget()
@@ -191,11 +193,12 @@ class PasswordPrompt(QDialog):
         self.input_antiga = QLineEdit()
         self.input_antiga.setEchoMode(QLineEdit.Password)
         self._attach_eye(self.input_antiga)
-        self.input_antiga.returnPressed.connect(self.validar_antiga)
         layout_antiga.addWidget(self.input_antiga)
         btn_verificar_antiga = QPushButton("Verificar")
         btn_verificar_antiga.clicked.connect(self.validar_antiga)
+        self.input_antiga.returnPressed.connect(btn_verificar_antiga.click)
         layout_antiga.addWidget(btn_verificar_antiga, alignment=Qt.AlignRight)
+
         self.stack.addWidget(self.page_verificar_antiga)
 
         self.page_intro = QWidget()
@@ -247,6 +250,88 @@ class PasswordPrompt(QDialog):
         self.adjustSize()               # garante tamanho mínimo ideal
         self.setFixedSize(self.size())  # trava largura e altura
 
+    # ---------- caixas de mensagem padronizadas ----------
+    def _msgbox(self, icon: QMessageBox.Icon, titulo: str, texto: str):
+        """
+        QMessageBox dark:
+        • Fundo #181818
+        • Texto branco #FFF, Segoe UI 12 pt (aplicado a TODOS os QLabel internos)
+        • Ícone 24 px alinhado
+        • Botão OK centralizado
+        """
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(titulo)
+        box.setText(texto)
+        box.setStandardButtons(QMessageBox.Ok)
+
+        # ---------- estilo ----------
+        box.setStyleSheet("""
+            QMessageBox {
+                background:#181818;
+            }
+            /* pega QUALQUER QLabel dentro da message-box                 */
+            QMessageBox QLabel {
+                color:#FFFFFF;
+                font-family:"Segoe UI";
+                font-size:12pt;
+            }
+            /* Ícone – reserva coluna fixa e centra                       */
+            QLabel#qt_msgboxex_icon_label {
+                min-width:24px; max-width:24px;
+                qproperty-alignment: AlignVCenter | AlignHCenter;
+            }
+            /* Texto – leve deslocamento para não colar no ícone          */
+            QLabel#qt_msgbox_label {
+                margin-left:6px;
+                qproperty-alignment: AlignVCenter | AlignLeft;
+            }
+            QPushButton {
+                background:#32363A;
+                color:#FFFFFF;
+                border-radius:6px;
+                padding:8px 26px;
+                font-family:"Segoe UI";
+                font-size:11pt;
+                font-weight:bold;
+            }
+            QPushButton:hover  { background:#4A4E52; }
+            QPushButton:pressed{ background:#2A2E32; }
+        """)
+
+        # Reduz o pixmap do ícone
+        if icon != QMessageBox.NoIcon:
+            pix = box.iconPixmap()
+            if not pix.isNull():
+                box.setIconPixmap(pix.scaled(24, 24, Qt.KeepAspectRatio,
+                                             Qt.SmoothTransformation))
+
+        # Centraliza o botão OK
+        ok_btn = box.button(QMessageBox.Ok)
+        ok_btn.setMinimumWidth(120)
+        box.layout().setAlignment(ok_btn, Qt.AlignHCenter)
+
+        # Sombra sutil
+        eff = QGraphicsDropShadowEffect(box)
+        eff.setBlurRadius(20)
+        eff.setOffset(0, 4)
+        eff.setColor(QColor(0, 0, 0, 160))
+        box.setGraphicsEffect(eff)
+
+        # ---------- força fonte/cor via fallback ----------
+        for lbl in box.findChildren(QLabel):
+            lbl.setStyleSheet(
+                "color:#FFFFFF; font-family:'Segoe UI'; font-size:12pt;"
+            )
+
+        box.exec_()
+
+
+    def warn(self, title: str, text: str):   # ⚠️
+        self._msgbox(QMessageBox.Warning, title, text)
+
+    def crit(self, title: str, text: str):   # ❌
+        self._msgbox(QMessageBox.Critical, title, text)
 
     def ativar_redefinicao(self):
         logger.debug("[BTN] Botão 'Redefinir senha' clicado – ativando fluxo de redefinição")
@@ -301,102 +386,105 @@ class PasswordPrompt(QDialog):
         senha = self.input_senha.text().strip()
         validacoes = senha_valida_detalhada(senha)
         if not all(validacoes.values()):
-            QMessageBox.warning(self, "Senha fraca", "A senha ainda não cumpre todos os requisitos.")
+            self.warn("Senha fraca", "A senha ainda não cumpre…")
             return
         self.mudar_pagina_animado(2)
 
     def verificar_confirmacao(self):
-        senha = self.input_senha.text().strip()
+        """Confere se as duas senhas digitadas coincidem
+        e conclui criação / redefinição."""
+        senha       = self.input_senha.text().strip()
         confirmacao = self.input_confirmar.text().strip()
 
         if senha != confirmacao:
-            QMessageBox.warning(self, "Erro", "As senhas não coincidem.")
+            self.warn("Erro", "As senhas não coincidem.")
             self.input_senha.clear()
             self.input_confirmar.clear()
             self.mudar_pagina_animado(1)
             return
 
+        # ---------------- criação ou redefinição ----------------
         if self.redefinindo:
+            # Recarrega banco usando a senha antiga
             try:
                 conn = load_into_memory(self.old_password)
             except Exception:
-                self.mostrar_erro("Não foi possível acessar o banco com a senha atual.")
+                self.crit("Erro", "Não foi possível acessar o banco com a senha atual.")
                 return
 
-
-            sucesso = redefinir_senha(self.old_password, senha, conn)
-            if not sucesso:
-                self.mostrar_erro("Erro ao redefinir senha.")
+            if not redefinir_senha(self.old_password, senha, conn):
+                self.crit("Erro", "Falha ao redefinir a senha.")
                 return
 
-            # Recarrega banco com nova senha
+            # Reabre cofre com a nova senha
             try:
                 novo_conn = load_into_memory(senha)
                 set_connection(novo_conn)
                 create_tables()
-            except Exception as e:
-                self.mostrar_erro("Erro ao recarregar banco após redefinir a senha.")
+            except Exception:
+                self.crit("Erro", "Erro ao recarregar banco após redefinir a senha.")
                 return
-
         else:
             criar_hash_senha(senha)
-            # ---- NOVO: cria cofre em RAM e registra conexão ----
             try:
                 conn = load_into_memory(senha)
                 set_connection(conn)
                 create_tables()
             except Exception as e:
-                self.mostrar_erro(f"Erro ao criar banco inicial: {e}")
+                self.crit("Erro", f"Erro ao criar banco inicial: {e}")
                 return
 
         self.resultado = senha
         self.accept()
+
         logger.debug("[prompt] confirm. redefinindo=%s", self.redefinindo)
 
 
     def confirmar_desbloqueio(self):
+        """Tenta abrir o cofre com a senha digitada."""
         senha = self.input_unlock.text().strip()
+
         if not senha:
-            QMessageBox.warning(self, "Erro", "Digite a senha para continuar.")
+            self.warn("Erro", "Digite a senha para continuar.")
             return
         if not validar_senha(senha):
-            QMessageBox.critical(self, "Erro", "Senha incorreta.")
+            self.crit("Erro", "Senha incorreta.")
             return
 
-        # ---- NOVO: abre o cofre em RAM e registra a conexão ----
         try:
             conn = load_into_memory(senha)
             set_connection(conn)
-            create_tables()              # garante que o schema exista
+            create_tables()
         except Exception as e:
-            self.mostrar_erro(f"Falha ao abrir o banco: {e}")
+            self.crit("Erro", f"Falha ao abrir o banco: {e}")
             return
 
         self.resultado = senha
         self.accept()
 
-
     def validar_antiga(self):
+        """Valida a senha atual antes de iniciar a redefinição."""
         senha = self.input_antiga.text().strip()
+
         if not senha:
-            QMessageBox.warning(self, "Erro", "Digite a senha atual.")
+            self.warn("Erro", "Digite a senha atual.")
             return
         if not validar_senha(senha):
-            QMessageBox.critical(self, "Erro", "Senha incorreta.")
+            self.crit("Erro", "Senha incorreta.")
             return
 
-        # ✓ senha antiga correta
-        self.old_password = senha            # ← guarda para re-cifrar
-        self.redefinindo = True              # ← ativa modo redefinição
-        self.mudar_pagina_animado(1)        # segue p/ tela de nova senha
-        logger.debug("[prompt] senha atual OK, segue redefinição")
+        # senha antiga correta → continua fluxo
+        self.old_password = senha
+        self.redefinindo  = True
+        self.mudar_pagina_animado(1)
 
     def get_password(self):
         return self.resultado
 
     # ---------- helper público -----------
     def mostrar_erro(self, msg: str):
-        QMessageBox.critical(self, "Erro", msg)
+        self.crit("Erro", msg)
+
 
     def gerar_cor_aleatoria(self):
         return QColor(

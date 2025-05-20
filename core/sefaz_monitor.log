@@ -46,3 +46,11 @@
 2025-05-20 14:06:08,613 [DEBUG] ⟳ ciclo 0 — next_interval=60s
 2025-05-20 14:06:08,613 [DEBUG] Iniciando consulta SEFAZ…
 2025-05-20 14:06:08,829 [INFO] 107 – Servico em Operacao
+2025-05-20 14:19:24,142 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-20 14:19:24,143 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-20 14:19:24,143 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-20 14:19:24,352 [INFO] 107 – Servico em Operacao
+2025-05-20 15:09:39,049 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-20 15:09:39,049 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-20 15:09:39,049 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-20 15:09:39,292 [INFO] 107 – Servico em Operacao
