@@ -12,7 +12,8 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import MaxNLocator
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QTableWidget, QTableWidgetItem,
-    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy, QScrollArea, QFrame
+    QInputDialog, QMessageBox, QPlainTextEdit, QLabel, QGroupBox, QAbstractItemView, QSizePolicy, QScrollArea, QFrame,
+    QGraphicsDropShadowEffect
 )
 from PyQt5.QtMultimedia import QSound
 from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
@@ -1004,103 +1005,140 @@ class HiveOverlay(QWidget):
 
 class SefazStatusCard(QFrame):
     """
-    Retângulo bonito que cresce/encolhe ao passar o mouse.
-    • update_status(payload) → altera cor e texto.
+    Card de status da SEFAZ, minimalista contraído e completo expandido.
     """
-    _COLLAPSED = QSize(160, 56)
-    _EXPANDED  = QSize(320, 120)
+
+    _COLLAPSED = QSize(200, 86)
+    _EXPANDED  = QSize(360, 136)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        # comece COM tamanho fixo (facilita animar "size")
-        self.setMinimumSize(self._COLLAPSED)   # tamanho mínimo
-        self.setMaximumSize(self._EXPANDED)    # tamanho máximo
-        self.resize(self._COLLAPSED)           # tamanho inicial visível
+        # ---- sombra (QGraphicsDropShadowEffect) ----
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(16)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 160))
+        self.setGraphicsEffect(shadow)
 
-
+        # ---- dimensões/estilo base ----
+        self.setMinimumSize(self._COLLAPSED)
+        self.setMaximumSize(self._EXPANDED)
+        self.resize(self._COLLAPSED)
         self.setStyleSheet("""
-            QFrame { background-color:#252526;
-                     border:2px solid #3C3C3C; border-radius:12px; }
-            QLabel#title   { font-size:16px; font-weight:bold; color:#FFFFFF; }
-            QLabel#status  { font-size:13px; color:#AAAAAA; }
-            QLabel#count   { font-size:11px; color:#BBBBBB; }
+            QFrame        { background-color:#2D2D30; border:none; border-radius:14px; }
+            QLabel#title  { font-size:20px; font-weight:700; color:#FFFFFF;
+                            padding:2px 10px; border-radius:8px; }
+            QLabel#status { font-size:15px; }
+            QLabel#count  { font-size:13px; color:#BBBBBB; }
         """)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(4)
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(6)
 
-        self.title_lbl  = QLabel("SEFAZ MT – NFe", objectName="title")
-        self.status_lbl = QLabel("--", objectName="status")
-        self.count_lbl  = QLabel("",  objectName="count")
+        self.title_lbl  = QLabel("Sefaz - MT", objectName="title")
+        self.status_lbl = QLabel("--",         objectName="status")
+        self.count_lbl  = QLabel("",           objectName="count")
         lay.addWidget(self.title_lbl)
         lay.addWidget(self.status_lbl)
         lay.addWidget(self.count_lbl)
 
-        # anima a PROPRIEDADE "size" (largura+altura) em vez de maximumSize
+        # animação tamanho
         self._anim = QPropertyAnimation(self, b"size", self)
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim.setDuration(180)
+        self._anim.setDuration(200)
 
-        # timer da contagem regressiva
+        # timer contagem
         self._cd_timer = QTimer(self)
         self._cd_timer.timeout.connect(self._tick)
         self._remaining = 0
-    
+
+        # estado
+        self._is_expanded   = False
+        self._simple_status = "--"
+        self._full_status   = "--"
+        self._current_grad  = "green"
+        self.count_lbl.hide()
 
     # ---------- animação de hover ----------
     def enterEvent(self, ev):
-        self._anim.stop()
-        self._anim.setStartValue(self.size())
-        self._anim.setEndValue(self._EXPANDED)
-        self._anim.start()
+        self._toggle(True)
         super().enterEvent(ev)
 
     def leaveEvent(self, ev):
-        self._anim.stop()
-        self._anim.setStartValue(self.size())
-        self._anim.setEndValue(self._COLLAPSED)
-        self._anim.start()
+        self._toggle(False)
         super().leaveEvent(ev)
 
     # ---------- API pública ----------
     def update_status(self, payload: dict):
-        cstat   = payload.get("status", "")
-        motivo  = payload.get("motivo", "--")
+        cstat      = payload.get("status", "")
+        motivo     = payload.get("motivo", "--")
         self._remaining = payload.get("next_in", 60)
-
-        self.status_lbl.setText(f"{cstat} – {motivo}")
-        self._update_count_label()
+        self._full_status = f"{cstat} – {motivo}"
 
         if cstat in {"107", "108"}:
+            self._simple_status = "OK"
             color = "#2ECC71"
+            grad  = "green"
         elif cstat in {"109", "110"}:
+            self._simple_status = "Lento"
             color = "#F1C40F"
+            grad  = "green"
         else:
+            self._simple_status = "Erro"
             color = "#E74C3C"
+            grad  = "red"
 
-        self.setStyleSheet(self.styleSheet() + f"""
-            QFrame {{ border-color:{color}; }}
-            QLabel#status {{ color:{color}; }}
-        """)
+        # pinta texto do status
+        self.status_lbl.setStyleSheet(f"font-size:15px; color:{color};")
 
-        # reinicia contagem
+        # aplica gradiente se mudou
+        if grad != self._current_grad:
+            if grad == "green":
+                g_css = ("background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                         "stop:0 #27AE60, stop:1 #1E8449);")
+            else:  # red
+                g_css = ("background:qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+                         "stop:0 #C0392B, stop:1 #922B21);")
+            self.title_lbl.setStyleSheet(
+                "font-size:20px; font-weight:700; color:#FFFFFF; "
+                "padding:2px 10px; border-radius:8px;" + g_css
+            )
+            self._current_grad = grad
+
+        self._apply_mode()
+
         if self._cd_timer.isActive():
             self._cd_timer.stop()
-        self._cd_timer.start(1000)   # 1 s
+        self._cd_timer.start(1000)
 
-    # ------------------- helpers ------------------- #
+    # ---------- helpers ----------
+    def _toggle(self, expand: bool):
+        if self._is_expanded == expand:
+            return
+        self._is_expanded = expand
+        self._anim.stop()
+        self._anim.setStartValue(self.size())
+        self._anim.setEndValue(self._EXPANDED if expand else self._COLLAPSED)
+        self._anim.start()
+        self._apply_mode()
+
+    def _apply_mode(self):
+        if self._is_expanded:
+            self.status_lbl.setText(self._full_status)
+            self.count_lbl.show()
+        else:
+            self.status_lbl.setText(self._simple_status)
+            self.count_lbl.hide()
+
     def _tick(self):
         self._remaining -= 1
         if self._remaining <= 0:
             self._cd_timer.stop()
             self.count_lbl.setText("consultando…")
         else:
-            self._update_count_label()
-
-    def _update_count_label(self):
-        self.count_lbl.setText(f"🔄 próxima em {self._remaining:02d}s")
+            self.count_lbl.setText(f"🔄 próxima em {self._remaining:02d}s")
 
 
 
