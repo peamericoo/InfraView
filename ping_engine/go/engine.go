@@ -140,32 +140,31 @@ func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<-
 			if !paused {
 				pinger, err := ping.NewPinger(ip)
 				if err != nil {
+					log.Printf("Erro ao criar pinger para %s: %v", ip, err)
 					continue
 				}
-				pinger.Count = 1
+
+				pinger.Count = 3
 				pinger.Timeout = 2 * time.Second
 				pinger.SetPrivileged(true)
+
 				err = pinger.Run()
+				stats := pinger.Statistics()
 
 				now := time.Now().Format(time.RFC3339)
-				online := err == nil
-				latency := 0.0
-				if online {
-					stats := pinger.Statistics()
-					if len(stats.Rtts) > 0 && stats.AvgRtt > 0 {
-						latency = float64(stats.AvgRtt.Milliseconds())
-					} else {
-						// Ping considerado inválido apesar de 'online'
-						latency = -1 // ou continue
-						online = false
-					}
+				latency := -1.0
+				online := false
+
+				if err == nil && stats.PacketsRecv > 0 {
+					latency = float64(stats.AvgRtt.Milliseconds())
+					online = true
 				}
 
 				status := &pb.StatusUpdate{
 					Ip:        ip,
 					Online:    online,
 					Latency:   latency,
-					Status:    "ok", // esse campo será refinado depois
+					Status:    "ok",
 					Timestamp: now,
 				}
 				statusChan <- status
