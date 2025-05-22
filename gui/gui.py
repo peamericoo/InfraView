@@ -847,13 +847,21 @@ class ServerCard(QWidget):
         self.latency_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lay.addWidget(self.latency_label)
 
+        # • status textual (fixo)
+        self.status_label = QLabel("...")
+        self.status_label.setStyleSheet("color:#CCCCCC;")
+        self.status_label.setFixedWidth(100)
+        self.status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        lay.addWidget(self.status_label)
+
     # ------------------------------------------------------------ #
-    def set_status(self, online: bool, latency: int):
+    def set_status(self, online: bool, latency: int, status_text: str = ""):
         self.online = online
         color = "#2ECC71" if online else "#E74C3C"
         self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{color};")
         self.latency_label.setText(f"{latency} ms" if latency > 0 else "N/A")
-        
+        self.status_label.setText(status_text or ("Desconhecido" if not online else "estável"))
+
     # --- piscar: alterna ponto entre vermelho e transparente ---- #
     def blink(self):
         if self.online:
@@ -949,7 +957,8 @@ class ServerListWidget(QWidget):
             status = status_dict.get(ip, {})
             card.set_status(
                 status.get("online", False),
-                status.get("latency", 0)
+                status.get("latency", 0),
+                status.get("status", "")
             )
             
             # --- Reordena visualmente os widgets no layout ---
