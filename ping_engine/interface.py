@@ -105,3 +105,10 @@ def test_loop():
 def get_orchestrator():
     global _orchestrator
     return _orchestrator
+
+def get_full_snapshot():
+    """
+    Retorna o snapshot completo dos dados dos servidores em tempo real.
+    """
+    global _ping_snapshot
+    return _ping_snapshot.copy()

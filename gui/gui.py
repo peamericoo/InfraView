@@ -1,3 +1,5 @@
+CONSULTA_SEFAZ_ATIVA = False 
+
 import json
 import os
 from datetime import datetime, timedelta
@@ -222,25 +224,26 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.main_content)  
 
         # ── inicia monitor da SEFAZ ─────────────────────────────── #
-        from core.sefaz_monitor import SefazConfig, SefazMonitor
-        import asyncio
-        import threading
+        if CONSULTA_SEFAZ_ATIVA:
+            from core.sefaz_monitor import SefazConfig, SefazMonitor
+            import asyncio
+            import threading
 
+            cfg = SefazConfig(
+                uf="mt",
+                certificado_path=r"C:\Users\Pedro Américo\Documents\Certificado Serpal\Serpal_Certificado.pfx",
+                certificado_senha="19841607",
+                doc_type="nfe",
+                homologacao=True,
+            )
 
-        cfg = SefazConfig(
-            uf="mt",
-            certificado_path=r"C:\Users\Pedro Américo\Documents\Certificado Serpal\Serpal_Certificado.pfx",
-            certificado_senha="19841607",
-            doc_type="nfe",
-            homologacao=True,
-        )
-
-        self.sefaz_monitor = SefazMonitor(cfg, on_update=self.sefaz_update_signal.emit)
-        # roda o monitor em loop asyncio próprio, dentro de uma thread daemon
-        threading.Thread(
-            target=lambda: asyncio.run(self.sefaz_monitor.start()),
-            daemon=True
-        ).start()
+            self.sefaz_monitor = SefazMonitor(cfg, on_update=self.sefaz_update_signal.emit)
+            threading.Thread(
+                target=lambda: asyncio.run(self.sefaz_monitor.start()),
+                daemon=True
+            ).start()
+        else:
+            logging.info("Consulta SEFAZ desativada pela configuração.")
 
         # ────────────────────────────────────────────────────────── #
 
@@ -602,42 +605,15 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.main_content)
 
     def update_window_title(self):
-        total_servers = len(self.servers)
-        online = sum(1 for ip in self.servers if self.offline_count.get(ip, 0) == 0)
-        offline = total_servers - online
-
-        latencies = []
-        for ip, card in self.server_list.cards.items():
-            try:
-                text = card.latency_label.text().replace(" ms", "")
-                if text.isdigit():
-                    latencies.append(int(text))
-            except:
-                continue
-        try:
-            avg_latency = sum(latencies) / len(latencies) if latencies else 0
-        except:
-            avg_latency = 0
-
-        avg_latency = int(avg_latency)
-        status_icon = "✅" if offline == 0 else "⚠️"
-        status_text = "Estável" if offline == 0 else "Instável"
-
-        # Frase rotativa a cada 2 ciclos
-        if self.title_update_counter % 2 == 0:
-            self.current_phrase_index = (self.current_phrase_index + 1) % len(self.sarcasm_phrases)
         phrase = self.sarcasm_phrases[self.current_phrase_index]
 
-        separator = " • "
-        title = (
-            f"InfraView Monitoring – {phrase}{separator}"
-            f"{status_icon} {online}/{total_servers} Online{separator}"
-            f"🕒 {avg_latency}ms média{separator}"
-            f"📊 {status_text}"
-        )
+        # Avança para a próxima frase sempre
+        self.current_phrase_index = (self.current_phrase_index + 1) % len(self.sarcasm_phrases)
+
+        # Define o título simplificado
+        title = f"InfraView Monitoring – {phrase}"
 
         self.setWindowTitle(title)
-        self.title_update_counter += 1
 
 # As classes ServerDashboard permanecem inalteradas
 class ServerDashboard(QMainWindow):
@@ -825,20 +801,18 @@ class ServerCard(QWidget):
         # • nome (expansível + elide)
         self.name_label = QLabel(name)
         self.name_label.setStyleSheet("font-weight:bold; color:white;")
-        self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.name_label.setMinimumWidth(100)   # evita encolher demais
-        self.name_label.setMaximumWidth(240)
-        self.name_label.setTextInteractionFlags(Qt.NoTextInteraction)
-        lay.addWidget(self.name_label, 2)
+        self.name_label.setAlignment(Qt.AlignCenter)
+        self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        lay.addWidget(self.name_label, 1)
         # permite ao ServerCard interceptar o double‑click do label
 
 
         # • IP (fixo)
         self.ip_label = QLabel(ip)
         self.ip_label.setStyleSheet("color:#BBBBBB;")
-        self.ip_label.setFixedWidth(120)
-        self.ip_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        lay.addWidget(self.ip_label)
+        self.ip_label.setAlignment(Qt.AlignCenter)  # Centralizar visualmente
+        self.ip_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # Expansível como os outros
+        lay.addWidget(self.ip_label, 1)  # Adicione peso proporcional como nos outros
 
         # • latência (fixo, alinhado à direita)
         self.latency_label = QLabel("-- ms")

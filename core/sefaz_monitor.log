@@ -86,3 +86,51 @@
 2025-05-22 00:20:49,758 [DEBUG] ⟳ ciclo 0 — next_interval=60s
 2025-05-22 00:20:49,758 [DEBUG] Iniciando consulta SEFAZ…
 2025-05-22 00:20:49,969 [INFO] 107 – Servico em Operacao
+2025-05-22 00:43:38,418 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-22 00:43:38,418 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-22 00:43:38,418 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-22 00:43:38,647 [INFO] 107 – Servico em Operacao
+2025-05-22 00:59:31,467 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-22 00:59:31,469 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-22 00:59:31,469 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-22 00:59:31,706 [INFO] 107 – Servico em Operacao
+2025-05-22 01:00:31,711 [DEBUG] ⤺ fim sleep — stop_evt=False
+2025-05-22 01:00:31,711 [DEBUG] ⟳ ciclo 1 — next_interval=60s
+2025-05-22 01:00:31,711 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-22 01:00:31,985 [INFO] 107 – Servico em Operacao
+2025-05-26 11:52:50,952 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 11:52:50,953 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 11:52:50,953 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 11:52:51,282 [INFO] 107 – Servico em Operacao
+2025-05-26 11:53:51,303 [DEBUG] ⤺ fim sleep — stop_evt=False
+2025-05-26 11:53:51,304 [DEBUG] ⟳ ciclo 1 — next_interval=60s
+2025-05-26 11:53:51,304 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 11:53:51,508 [INFO] 107 – Servico em Operacao
+2025-05-26 12:01:01,207 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:01:01,208 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:01:01,208 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:01:01,415 [INFO] 107 – Servico em Operacao
+2025-05-26 12:10:23,420 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:10:23,420 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:10:23,422 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:10:23,659 [INFO] 107 – Servico em Operacao
+2025-05-26 12:19:19,300 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:19:19,302 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:19:19,302 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:19:19,515 [INFO] 107 – Servico em Operacao
+2025-05-26 12:19:50,672 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:19:50,673 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:19:50,673 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:19:50,908 [INFO] 107 – Servico em Operacao
+2025-05-26 12:24:29,969 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:24:29,969 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:24:29,969 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:24:30,152 [INFO] 107 – Servico em Operacao
+2025-05-26 12:25:51,927 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:25:51,927 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:25:51,928 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:25:52,105 [INFO] 107 – Servico em Operacao
+2025-05-26 12:27:34,438 [INFO] Monitor iniciado (UF=MT, doc=nfe)
+2025-05-26 12:27:34,438 [DEBUG] ⟳ ciclo 0 — next_interval=60s
+2025-05-26 12:27:34,438 [DEBUG] Iniciando consulta SEFAZ…
+2025-05-26 12:27:34,740 [INFO] 107 – Servico em Operacao
