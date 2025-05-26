@@ -28,6 +28,7 @@ from core.database import get_db_connection
 from core.database import get_all_servers, insert_server
 from gui.navigation_bar import NavigationBar
 from ping_engine import interface
+from gui.server_dashboard import ServerDashboard
 
 
 # Importa a tela de edição de servidores
@@ -375,8 +376,7 @@ class MainWindow(QMainWindow):
         try:
             ip = list(self.servers.keys())[row]
             name = self.servers[ip]
-            history = self.failure_history.get(ip, [])
-            dashboard = ServerDashboard(name, ip, history)
+            dashboard = ServerDashboard(name, ip, interface)  # ✅ CORRETO
             dashboard.show()
             self.dashboard_windows.append(dashboard)
         except IndexError:
@@ -615,156 +615,6 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(title)
 
-# As classes ServerDashboard permanecem inalteradas
-class ServerDashboard(QMainWindow):
-    def __init__(self, server_name, ip, failure_history):
-        super().__init__()
-        self.server_name = server_name
-        self.ip = ip
-        self.failure_history = failure_history
-        self.setWindowTitle(f"Dashboard - {server_name} ({ip})")
-        self.resize(900, 600)
-        self._x_sorted = []
-        self._y_sorted = []
-        self._tooltips_sorted = []
-        self.last_bucket = None
-        self.last_y_max = None
-        self.initUI()
-        self.start_clock()
-        self.start_graph_update()
-
-    def initUI(self):
-        central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #D3D3D3;")
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        self.clock_label = QLabel()
-        self.clock_label.setAlignment(Qt.AlignCenter)
-        self.clock_label.setStyleSheet("font-size: 24px; background-color: #D3D3D3;")
-        main_layout.addWidget(self.clock_label)
-        hbox = QHBoxLayout()
-        main_layout.addLayout(hbox)
-        left_widget = QWidget()
-        left_widget.setStyleSheet("background-color: #D3D3D3;")
-        left_layout = QVBoxLayout(left_widget)
-        self.figure, self.ax = plt.subplots()
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        left_layout.addWidget(self.canvas)
-        hbox.addWidget(left_widget)
-        right_widget = QWidget()
-        right_widget.setStyleSheet("background-color: #D3D3D3;")
-        right_layout = QVBoxLayout(right_widget)
-        self.console_view = QPlainTextEdit()
-        self.console_view.setReadOnly(True)
-        self.console_view.setPlaceholderText("Clique em uma bolinha para ver os detalhes do intervalo.")
-        self.console_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        right_layout.addWidget(self.console_view)
-        hbox.addWidget(right_widget)
-        self.canvas.mpl_connect("pick_event", self.on_pick)
-
-    def start_clock(self):
-        self.timer_clock = QTimer(self)
-        self.timer_clock.timeout.connect(self.update_clock)
-        self.timer_clock.start(1000)
-        self.update_clock()
-
-    def update_clock(self):
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.clock_label.setText(current_time)
-
-    def start_graph_update(self):
-        self.timer_graph = QTimer(self)
-        self.timer_graph.timeout.connect(self.update_graph)
-        self.timer_graph.start(3000)
-        self.update_graph()
-
-    def update_graph(self):
-        self.ax.clear()
-        now = datetime.now()
-        cutoff_time = now - timedelta(minutes=10)
-        filtered_history = []
-        pattern_dt = r'\[(.*?)\]'
-        for entry in self.failure_history:
-            match_dt = re.search(pattern_dt, entry)
-            if match_dt:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    if dt_event >= cutoff_time:
-                        filtered_history.append(entry)
-                except:
-                    continue
-        groups = {}
-        pattern_fail = r'Falha: (\d+) consecutivas'
-        for entry in filtered_history:
-            match_dt = re.search(pattern_dt, entry)
-            match_fail = re.search(pattern_fail, entry)
-            if match_dt and match_fail:
-                try:
-                    dt_event = datetime.strptime(match_dt.group(1), "%Y-%m-%d %H:%M:%S")
-                    bucket = int(dt_event.timestamp() // 60)
-                    groups.setdefault(bucket, {"times": [], "entries": []})
-                    groups[bucket]["times"].append(dt_event)
-                    groups[bucket]["entries"].append(entry)
-                except Exception:
-                    continue
-        xs, ys, tooltips = [], [], []
-        for bucket in sorted(groups.keys()):
-            bucket_time = datetime.fromtimestamp(bucket * 60)
-            xs.append(bucket_time)
-            failure_values = []
-            for msg in groups[bucket]["entries"]:
-                m = re.search(pattern_fail, msg)
-                if m:
-                    failure_values.append(int(m.group(1)))
-            max_failure = max(failure_values) if failure_values else 0
-            ys.append(max_failure)
-            tooltip_text = "\n".join(groups[bucket]["entries"])
-            tooltips.append(tooltip_text)
-        if xs and ys:
-            data = sorted(zip(xs, ys, tooltips), key=lambda x: x[0])
-            x_sorted = [d[0] for d in data]
-            y_sorted = [d[1] for d in data]
-            tooltips_sorted = [d[2] for d in data]
-            self._x_sorted = x_sorted
-            self._y_sorted = y_sorted
-            self._tooltips_sorted = tooltips_sorted
-            new_last_bucket = x_sorted[-1]
-            new_y_max = max(y_sorted)
-            if self.last_bucket is None or new_last_bucket != self.last_bucket:
-                self.last_bucket = new_last_bucket
-                self.last_y_max = new_y_max
-            if self.last_y_max is None:
-                self.last_y_max = new_y_max
-            if new_y_max > self.last_y_max:
-                self.last_y_max = new_y_max
-            self.ax.fill_between(x_sorted, 0, y_sorted, color='salmon', alpha=0.2)
-            self.ax.plot(x_sorted, y_sorted, '-o', color='red')
-            self.scatter = self.ax.scatter(x_sorted, y_sorted, marker='o', facecolor='yellow', edgecolor='black', picker=True)
-            self.ax.set_ylim(0, self.last_y_max + 1)
-            self.ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            self.ax.set_title("Histórico de Falhas")
-            self.ax.set_xlabel("Exibindo últimos 10 minutos\n(Agrupados em 1 minuto)")
-            self.ax.set_ylabel("Máximo de Falhas Consecutivas")
-            self.ax.tick_params(axis='x', which='both', length=0)
-            self.ax.set_xticklabels([])
-        else:
-            self.ax.text(0.5, 0.5, "Sem falhas", horizontalalignment='center',
-                         verticalalignment='center', transform=self.ax.transAxes, fontsize=12)
-        self.figure.tight_layout()
-        self.canvas.draw()
-
-    def on_pick(self, event):
-        if event.artist is not self.scatter:
-            return
-        if len(event.ind) == 0:
-            return
-        ind = event.ind[0]
-        interval_time = self._x_sorted[ind].strftime("%H:%M")
-        details = self._tooltips_sorted[ind]
-        self.console_view.setPlainText(f"Intervalo: {interval_time}\n{details}")
-
 class ServerCard(QWidget):
     card_clicked = pyqtSignal(str)
     """
@@ -831,10 +681,28 @@ class ServerCard(QWidget):
     # ------------------------------------------------------------ #
     def set_status(self, online: bool, latency: int, status_text: str = ""):
         self.online = online
-        color = "#2ECC71" if online else "#E74C3C"
-        self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{color};")
+        dot_color = "#2ECC71" if online else "#E74C3C"
+        self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{dot_color};")
         self.latency_label.setText(f"{latency} ms" if latency > 0 else "N/A")
-        self.status_label.setText(status_text or ("Desconhecido" if not online else "estável"))
+
+        status_text = status_text or ("Desconhecido" if not online else "estável")
+        self.status_label.setText(status_text)
+
+        status_colors = {
+            "estável": "#2ECC71",
+            "instável": "#F39C12",
+            "flutuante": "#f1c40f",
+            "risco crescente": "#d35400",
+            "offline": "#E74C3C",
+            "observação": "#3498db",
+            "firewall": "#9b59b6",
+            "online_tcp": "#1abc9c",
+            "crítico": "#c0392b",
+            "erro_analise": "#bdc3c7",
+        }
+
+        color = status_colors.get(status_text.lower(), "#CCCCCC")
+        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     # --- piscar: alterna ponto entre vermelho e transparente ---- #
     def blink(self):
