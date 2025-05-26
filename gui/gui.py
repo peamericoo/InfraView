@@ -1,5 +1,5 @@
 CONSULTA_SEFAZ_ATIVA = False 
-
+from core.status_logic import is_server_online
 import json
 import os
 from datetime import datetime, timedelta
@@ -412,9 +412,9 @@ class MainWindow(QMainWindow):
         self.server_list.update_servers(status_dict, self.servers)
 
         for ip, name in self.servers.items():
-            status = status_dict.get(ip, {})
-            online = status.get("online", False)
-            latency = status.get("latency", 0)
+            status = status_dict.get(ip)
+            online = is_server_online(status)
+            latency = status["latency"] if status and "latency" in status else 0
 
             if not online:
                 self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
@@ -878,13 +878,9 @@ class ServerListWidget(QWidget):
 
             # Aplica status se disponível
             status = status_dict.get(ip)
-            if status:
-                self.cards[ip].set_status(
-                    status.get("online", False),
-                    status.get("latency", 0)
-                )
-            else:
-                self.cards[ip].set_status(False, 0)  # padrão: offline e latência 0
+            online = is_server_online(status)
+            latency = (status or {}).get("latency", 0)
+            self.cards[ip].set_status(online, latency)
 
         # Reordena visualmente pelo status
         def sort_key(ip):
