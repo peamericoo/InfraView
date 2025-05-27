@@ -1,114 +1,169 @@
 # ping_engine/interface.py
+"""
+Engine ↔ GUI bridge (versão com correções)
+──────────────────────────────────────────
+Correções nesta revisão:
+1. **Barreira de inicialização** – `_loop_ready` (threading.Event) garante
+   que chamadas públicas (`add_server`, etc.) só sejam despachadas após o
+   loop e o orchestrator estarem prontos.
+2. **Consulta ao DB em thread pool** – dentro do worker, a verificação de
+   servidores existentes (`list_servers`) roda em `run_in_executor`, evitando
+   bloqueio do loop.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import threading
+from typing import Dict, Tuple, Any
 
 from ping_engine.orchestrator import PingOrchestrator
 from ping_engine import database_access, analytics, scheduler, cache
 
-_loop = None
-_orchestrator = None
-_callback = None
-_ping_snapshot = {}
+# ─────────────────────────────────────────────────────────────────────────────
+# GLOBAIS
+# ─────────────────────────────────────────────────────────────────────────────
+_loop: asyncio.AbstractEventLoop | None = None
+_orchestrator: PingOrchestrator | None = None
+_callback = None                           # função da GUI que recebe snapshot
+_ping_snapshot: Dict[str, Dict[str, Any]] = {}
+
+# Fila de processamento assíncrono
+_QUEUE_MAXSIZE = 1000
+_WORKER_COUNT = 4
+_proc_queue: asyncio.Queue[Tuple[str, Dict[str, Any]]] | None = None
+
+# Barrier de prontidão
+_loop_ready = threading.Event()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOOP & BOOTSTRAP
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _run_async_loop():
-    global _loop, _orchestrator
+    """Cria o loop asyncio dedicado à engine Go + workers."""
+    global _loop, _orchestrator, _proc_queue
+
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)
+
+    _proc_queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
     _orchestrator = PingOrchestrator()
     _orchestrator.loop = _loop
 
-    def loop_forever():
-        print("[DEBUG] Iniciando loop asyncio com run_forever()")
-        try:
-            _loop.run_until_complete(_start_engine())
-            _loop.run_forever()
-        except Exception as e:
-            print("[ERRO] Loop asyncio encerrou com erro:", e)
+    async def main_async():
+        await _start_engine()
+        _loop_ready.set()  # sinaliza que o loop/orchestrator estão prontos
+        await asyncio.Event().wait()  # mantém vivo
 
-    threading.Thread(target=loop_forever, daemon=True).start()
+    _loop.run_until_complete(main_async())
+
 
 def start_engine(callback):
-    """
-    Inicia a engine em background. Deve ser chamada pela GUI.
-    """
+    """Iniciado pela GUI — spawna thread com loop asyncio dedicado."""
     global _callback
     _callback = callback
     threading.Thread(target=_run_async_loop, daemon=True).start()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ENGINE STARTUP
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def _start_engine():
+    """Conecta ao orchestrator, cria workers e recupera IPs do DB."""
     await _orchestrator.connect()
 
     database_access.create_tables()
     _orchestrator.add_status_callback(_handle_status)
 
-    # Recupera IPs do banco
+    # Workers
+    for i in range(_WORKER_COUNT):
+        _loop.create_task(_worker_loop(), name=f"worker-{i}")
+
+    # IPs salvos
     from core.database import get_all_servers
-    db_rows = get_all_servers()
-    ips = [row[1] for row in db_rows]
+    ips = [row[1] for row in get_all_servers()]
     for ip in ips:
         await _orchestrator.add_server(ip)
 
     await _orchestrator.stream_status(ips)
 
-async def _handle_status(update_dict):
-    """
-    Recebe múltiplos updates da engine Go em um dicionário por IP.
-    Atualiza cache, histórico, analisa status e envia snapshot para GUI.
-    """
-    global _ping_snapshot
+# ─────────────────────────────────────────────────────────────────────────────
+# CALLBACK → FILA  (NÃO BLOQUEANTE)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    current_ips = list_servers()
-
+async def _handle_status(update_dict: Dict[str, Dict[str, Any]]):
     for ip, data in update_dict.items():
-        if ip not in current_ips:
-            continue  # Ignora updates de IPs já removidos
+        try:
+            _proc_queue.put_nowait((ip, data))
+        except asyncio.QueueFull:
+            print(f"[WARN] Fila de processamento cheia – descartando {ip}")
 
-        data["status"] = analytics.analyze_ping(data)
-        database_access.save_ping_result(data)
-        cache.update(ip, data["status"], data["latency"])
-        _ping_snapshot[ip] = data
+# ─────────────────────────────────────────────────────────────────────────────
+# WORKERS  (CONSOMEM A FILA)
+# ─────────────────────────────────────────────────────────────────────────────
 
-    # Remove IPs que não estão mais ativos
-    for ip in list(_ping_snapshot.keys()):
-        if ip not in current_ips:
-            _ping_snapshot.pop(ip, None)
+async def _worker_loop():
+    while True:
+        ip, data = await _proc_queue.get()
+        try:
+            status = await _loop.run_in_executor(None, analytics.analyze_ping, data)
+            data["status"] = status
+            await _loop.run_in_executor(None, database_access.save_ping_result, data)
 
-    if _callback:
-        _callback(_ping_snapshot.copy())
+            cache.update(ip, data["status"], data["latency"])
+            _ping_snapshot[ip] = data
 
-def add_server(ip):
+            # Verifica se IP ainda existe (execução em thread pool para evitar bloqueio)
+            servers_set = await _loop.run_in_executor(None, list_servers)
+            if ip not in servers_set:
+                _ping_snapshot.pop(ip, None)
+
+            if _callback:
+                _callback(_ping_snapshot.copy())
+
+        except Exception as exc:
+            print(f"[ERRO] worker processando {ip}: {exc}")
+        finally:
+            _proc_queue.task_done()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WRAPPERS PÚBLICOS USADOS PELA GUI
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _wait_until_ready(timeout=5):
+    if not _loop_ready.wait(timeout):
+        raise RuntimeError("Engine loop não inicializado em tempo hábil")
+
+
+def add_server(ip: str):
+    _wait_until_ready()
     asyncio.run_coroutine_threadsafe(_orchestrator.add_server(ip), _loop)
 
-def remove_server(ip):
+
+def remove_server(ip: str):
+    _wait_until_ready()
     asyncio.run_coroutine_threadsafe(_orchestrator.remove_server(ip), _loop)
 
-def get_server_status(ip):
+
+def get_server_status(ip: str):
     return {
         "status": cache.get_status(ip),
         "latency": cache.get_latency(ip),
-        "last_ping": cache.get_last_ping_time(ip)
+        "last_ping": cache.get_last_ping_time(ip),
     }
+
 
 def list_servers():
     from core.database import get_all_servers
-    db_rows = get_all_servers()
-    return [row[1] for row in db_rows]
+    return [row[1] for row in get_all_servers()]
 
-def test_loop():
-    import asyncio
-    async def hello():
-        print("[DEBUG] safe_stream() TESTE rodando dentro do loop")
-    asyncio.run_coroutine_threadsafe(hello(), _loop)
 
-def get_orchestrator():
-    global _orchestrator
+def get_orchestrator() -> PingOrchestrator:
+    _wait_until_ready()
     return _orchestrator
 
+
 def get_full_snapshot():
-    """
-    Retorna o snapshot completo dos dados dos servidores em tempo real.
-    """
-    global _ping_snapshot
     return _ping_snapshot.copy()

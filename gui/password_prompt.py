@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QDialog, QLabel, QLineEdit, QPushButton, QVBoxLayout,
                              QHBoxLayout, QMessageBox, QStackedLayout, QWidget,
-                             QApplication, QFrame, QToolButton, QStyle, QAction)
+                             QApplication, QFrame, QToolButton, QStyle, QAction, QDesktopWidget)
 
 from PyQt5.QtGui import QFont, QColor, QPainter, QLinearGradient, QBrush, QIcon
 from PyQt5.QtWidgets import QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QAction, QSizePolicy
@@ -223,8 +223,21 @@ class PasswordPrompt(QDialog):
 
         self.anim = QPropertyAnimation(self, b"geometry")
         self.anim.setDuration(300)
-        screen_center = QApplication.desktop().screen().rect().center()
-        self.move(screen_center - self.rect().center())
+        self.setFixedSize(self.size())  # trava largura e altura
+
+        # CORREÇÃO: Centraliza corretamente
+        frame_geometry = self.frameGeometry()
+        center_point = QDesktopWidget().availableGeometry().center()
+        frame_geometry.moveCenter(center_point)
+        self.move(frame_geometry.topLeft())
+
+        # animação vertical
+        self.anim = QPropertyAnimation(self, b"geometry")
+        self.anim.setDuration(300)
+        self.anim.setStartValue(QRect(self.x(), self.y() - 20, self.width(), self.height()))
+        self.anim.setEndValue(QRect(self.x(), self.y(), self.width(), self.height()))
+        QTimer.singleShot(50, self.anim.start)
+
         self.anim.setStartValue(QRect(self.x(), self.y() - 20, self.width(), self.height()))
         self.anim.setEndValue(QRect(self.x(), self.y(), self.width(), self.height()))
         QTimer.singleShot(50, self.anim.start)
@@ -246,9 +259,8 @@ class PasswordPrompt(QDialog):
         self.gradient_timer.timeout.connect(self.atualizar_degrade)
         self.gradient_timer.start(40)
         
-        # ─── Bloqueia redimensionamento ───
-        self.adjustSize()               # garante tamanho mínimo ideal
-        self.setFixedSize(self.size())  # trava largura e altura
+        self.resize(500, 360)           # define tamanho fixo padrão
+        self.setFixedSize(500, 360)     # trava esse tamanho
 
     # ---------- caixas de mensagem padronizadas ----------
     def _msgbox(self, icon: QMessageBox.Icon, titulo: str, texto: str):

@@ -24,45 +24,86 @@ def is_engine_running():
             continue
     return False, None
 
+def _collect_engine_pids() -> list[int]:
+    """Devolve todos os PIDs que escutam a porta da engine (50051)."""
+    pids = []
+    for proc in psutil.process_iter(['pid']):
+        try:
+            for con in proc.connections(kind='inet'):
+                if con.laddr.port == ENGINE_PORT:
+                    pids.append(proc.pid)
+                    break
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return pids
+
+
+def _kill_pid(pid: int) -> None:
+    """Tenta terminar o processo com SIGTERM; se não morrer → SIGKILL."""
+    try:
+        p = psutil.Process(pid)
+        if os.name == 'nt':
+            p.send_signal(signal.SIGTERM)
+        else:
+            p.terminate()
+        p.wait(timeout=3)
+    except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+        try:                         # força
+            p.kill()
+        except Exception:
+            pass
+
+
 def launch_engine():
     """
-    Inicia a engine Go como subprocesso se não estiver rodando ainda.
+    • Se existirem instâncias órfãs (GUI anterior crashou) → mata todas.
+    • Depois inicia uma nova engine.go e aguarda escuta da porta.
     """
     global ENGINE_PROCESS
 
-    running, pid = is_engine_running()
-    if running:
-        print(f"[ENGINE_BOOT] Engine já está rodando (PID {pid})")
-        return
+    # 1️⃣  varre porta 50051
+    stale_pids = _collect_engine_pids()
+    if stale_pids:
+        print(f"[ENGINE_BOOT] Encontradas instâncias órfãs: {stale_pids} – encerrando…")
+        for pid in stale_pids:
+            if pid != os.getpid():   # nunca mate o próprio Python
+                _kill_pid(pid)
 
+    # 2️⃣  agora deve estar livre
+    if _collect_engine_pids():
+        print("[ENGINE_BOOT] Falha: porta 50051 continua ocupada.")
+        raise RuntimeError("Não foi possível liberar a porta 50051.")
+
+    # 3️⃣  inicia engine fresca
     go_dir = os.path.join(os.getcwd(), "ping_engine", "go")
-    print("[ENGINE_BOOT] Iniciando engine.go via subprocess...")
+    print("[ENGINE_BOOT] Iniciando engine.go via subprocess…")
 
     ENGINE_PROCESS = subprocess.Popen(
         ["go", "run", "engine.go"],
         cwd=go_dir,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
     )
 
-    # Aguarda até a porta estar escutando (máximo 5 segundos)
+    # 4️⃣  espera até a porta responder (máximo 5 s)
     for _ in range(50):
-        if is_engine_running()[0]:
+        if _collect_engine_pids():
             print("[ENGINE_BOOT] Engine iniciada com sucesso.")
             return
         time.sleep(0.1)
 
-    # Se chegou aqui, a engine não subiu — exibe erros
     print("[ENGINE_BOOT] Falha: a engine não iniciou a tempo.")
     try:
-        stdout, stderr = ENGINE_PROCESS.communicate(timeout=5)
-        if stdout:
-            print("[ENGINE OUTPUT]", stdout)
-        if stderr:
-            print("[ENGINE ERRO]", stderr)
-    except Exception as e:
-        print(f"[ENGINE_BOOT] Erro ao tentar capturar logs da engine: {e}")
+        out, err = ENGINE_PROCESS.communicate(timeout=5)
+        if out:
+            print("[ENGINE OUTPUT]", out)
+        if err:
+            print("[ENGINE ERRO]", err)
+    except Exception:
+        pass
+    raise RuntimeError("Engine.go não pôde ser iniciada.")
 
 def shutdown_engine():
     """

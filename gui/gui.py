@@ -30,6 +30,41 @@ from gui.navigation_bar import NavigationBar
 from ping_engine import interface
 from gui.server_dashboard import ServerDashboard
 
+# === helper de normalização =============================
+# === helper de normalização =============================
+def _normalize_server_row(row):
+    """
+    Converte saída do SELECT servers em tupla padronizada
+    (name, ip, status:int, folder:str, color:str)
+
+    • Garante sempre 5 campos – evita ValueError quando a linha
+      vier incompleta ou vazia.
+    • Preenche valores ausentes / NULL com defaults seguros.
+    """
+    # --- saneamento da entrada ---------------------------------
+    if not row:                                     # None ou tuple()
+        row = ()
+
+    # converte para lista p/ podermos preencher faltantes
+    data = list(row)
+
+    # Preenche até ter 5 posições
+    while len(data) < 5:
+        data.append(None)
+
+    name, ip, status, folder, color = data[:5]
+
+    # Defaults seguros
+    name   = name   or "<sem nome>"
+    ip     = ip     or "<sem ip>"
+    status = status if isinstance(status, int) else 0
+    folder = folder or ""
+    color  = color  or "#000000"
+
+    return name, ip, status, folder, color
+# =========================================================
+
+# =========================================================
 
 # Importa a tela de edição de servidores
 from gui.edit_servers import EditServersWidget
@@ -51,6 +86,8 @@ def create_circle_pixmap(color: QColor, diameter=12) -> QPixmap:
     painter.drawEllipse(0, 0, diameter, diameter)
     painter.end()
     return pixmap
+
+
 
 class MainWindow(QMainWindow):
     ping_update_signal = pyqtSignal(dict)  # sinal para atualizar a tabela com segurança
@@ -340,11 +377,10 @@ class MainWindow(QMainWindow):
         group_hive_layout = QVBoxLayout(self.group_hive)
 
         db_rows = get_all_servers()
-        servers_data = [
-            (name, ip, 0, folder or "", color or "#000000")
-            for name, ip, status, folder, color in db_rows
-        ]
-        servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
+        servers_data = [ _normalize_server_row(r) for r in db_rows ]
+
+        servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
+
         self.hive_view = HiveView(servers_data, columns=4)
         group_hive_layout.addWidget(self.hive_view)
 
@@ -392,162 +428,154 @@ class MainWindow(QMainWindow):
                 self.hive_view.deleteLater()
 
             db_rows = get_all_servers()
-            servers_data = [
-                (name, ip, 0, folder or "", color or "#000000")
-                for name, ip, status, folder, color in db_rows
-            ]
-            servers_data.sort(key=lambda x: (x[3] == '', x[3].lower(), x[0].lower()))
+            servers_data = [ _normalize_server_row(r) for r in db_rows ]
+
+            servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
+
 
             self.hive_view = HiveView(servers_data, columns=4)
             layout.addWidget(self.hive_view)
 
-    def update_table(self, status_dict):
-        # ✅ Protege a GUI contra sinais atrasados da thread contendo IPs já removidos
-        if set(status_dict.keys()) - set(self.servers.keys()):
+    # ───────────────────────────────────────────────────────────────── #
+    def update_table(self, status_dict: dict[str, dict]):
+        """
+        Actualiza cards, HiveView e log de falhas.
+        • online/off-line definido só por `is_server_online`.
+        • Ausência temporária de IP no status_dict NÃO gera off-line.
+        """
+        # ❶ ignora sinais referentes a IPs já excluídos do banco
+        if set(status_dict) - set(self.servers):
             return
 
-        log_lines = []
-        updated_hive_data = []
-        offline_count = 0
-        self.server_list.update_servers(status_dict, self.servers)
+        # ❷ cache incremental do último estado conhecido -------------
+        if not hasattr(self, "latest_status"):
+            self.latest_status: dict[str, dict] = {}
 
+        # mantemos apenas IPs que ainda existem na aplicação
+        status_dict = {ip: st for ip, st in status_dict.items()
+                       if ip in self.servers}
+
+        self.latest_status.update(status_dict)   # merge
+        current = self.latest_status             # alias
+
+        # ❸ estruturas auxiliares ------------------------------------
+        log_lines: list[str]          = []
+        updated_hive_data: list[tuple] = []
+        offline_count = 0
+
+        # ❹ actualiza cards da lista lateral --------------------------
+        self.server_list.update_servers(current, self.servers)
+
+        # ❺ percorre servidores conhecidos ---------------------------
         for ip, name in self.servers.items():
-            status = status_dict.get(ip)
-            online = is_server_online(status)
-            latency = status["latency"] if status and "latency" in status else 0
+            st      = current.get(ip, {})
+            online  = is_server_online(st)
+            latency = int(st.get("latency", 0) or 0)
 
             if not online:
                 self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                entry = f"[{timestamp}] Falha: {self.offline_count[ip]} consecutivas"
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                entry = (f"[{ts}] {name} ({ip}): "
+                         f"{self.offline_count[ip]} falha(s)")
                 self.failure_history[ip].append(entry)
-                log_lines.append(f"[{timestamp}] {name} ({ip}): {self.offline_count[ip]} falha(s)")
+                log_lines.append(entry)
                 offline_count += 1
             else:
                 self.offline_count[ip] = 0
 
-        from core.database import get_all_servers
-
-        db_rows = get_all_servers()
-        servers_lookup = {
-                ip: (name, ip, folder or "", color or "#000000")
-                for name, ip, status, folder, color in db_rows
-            }
-
-        updated_hive_data.clear()
-        for ip, (name, ip, folder, color) in servers_lookup.items():
-            latency = status_dict.get(ip, {}).get("latency", 0)
+        # ❻ prepara dados para HiveView ------------------------------
+        db_rows = map(_normalize_server_row, get_all_servers())
+        for name, ip, _st, folder, color in db_rows:
+            st      = current.get(ip, {})
+            online  = is_server_online(st)
+            latency = -1 if not online else int(st.get("latency", 0) or 0)
             updated_hive_data.append((name, ip, latency, folder, color))
 
+        # ❼ (re)desenha log de falhas offline ------------------------
         for i in reversed(range(self.offline_log_layout.count())):
-            widget_to_remove = self.offline_log_layout.itemAt(i).widget()
-            if widget_to_remove:
-                widget_to_remove.setParent(None)
+            w = self.offline_log_layout.itemAt(i).widget()
+            if w:
+                w.setParent(None)
 
         if log_lines:
             for entry in log_lines:
+                # ---------------- estilização idêntica ao seu código --------------
                 match = re.search(r"\[(.*?)\]", entry)
-                if match:
-                    raw_timestamp = match.group(1)
-                    try:
-                        dt = datetime.strptime(raw_timestamp, "%Y-%m-%d %H:%M:%S")
-                        date_str = dt.strftime("%d/%m/%Y")
-                        time_str = dt.strftime("%H:%M:%S")
-                    except:
-                        date_str = "Data inválida"
-                        time_str = ""
-                else:
-                    raw_timestamp = ""
-                    date_str = "Desconhecida"
-                    time_str = ""
+                raw_ts = match.group(1) if match else ""
+                try:
+                    dt = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
+                    date_str = dt.strftime("%d/%m/%Y")
+                    time_str = dt.strftime("%H:%M:%S")
+                except ValueError:
+                    date_str, time_str = "Data inválida", ""
 
-                body = entry.replace(f"[{raw_timestamp}]", "").strip()
-                server_info = body.split(":")[0].strip()
-                fail_info = body.split(":")[1].strip() if ":" in body else "Falha desconhecida"
+                body = entry.replace(f"[{raw_ts}]", "").strip()
+                server_info, _, fail_info = body.partition(":")
+                server_info, fail_info = server_info.strip(), fail_info.strip()
 
                 frame = QFrame()
                 frame.setStyleSheet("""
-                QFrame {
-                    background-color: #2D2D30;
-                    border: 1px solid #3C3C3C;
-                    border-radius: 12px;
-                }
+                    QFrame {background-color:#2D2D30;border:1px solid #3C3C3C;
+                            border-radius:12px;}
                 """)
-                layout = QVBoxLayout(frame)
-                layout.setContentsMargins(14, 12, 14, 12)
-                layout.setSpacing(8)
+                lay = QVBoxLayout(frame); lay.setContentsMargins(14,12,14,12)
+                lay.setSpacing(8)
 
                 title = QLabel(server_info)
                 title.setStyleSheet("""
-                    font-size: 17px;
-                    font-weight: bold;
-                    background-color: #2C3E50;
-                    color: white;
-                    padding: 6px 12px;
-                    border-radius: 6px;
+                    font-size:17px;font-weight:bold;background-color:#2C3E50;
+                    color:white;padding:6px 12px;border-radius:6px;
                 """)
 
-                info_container = QWidget()
-                info_layout = QHBoxLayout(info_container)
-                info_container.setStyleSheet("background-color: #2D2D30;")
-                info_layout.setContentsMargins(0, 0, 0, 0)
-                info_layout.setSpacing(10)
+                info_c = QWidget(); info_lay = QHBoxLayout(info_c)
+                info_lay.setContentsMargins(0,0,0,0); info_lay.setSpacing(10)
+                info_c.setStyleSheet("background-color:#2D2D30;")
 
-                def styled_info(text, icon, color, bold=False):
-                    label = QLabel(f"{icon} {text}")
+                def pill(txt, icon, color, bold=False):
+                    w = QLabel(f"{icon} {txt}")
                     weight = "bold" if bold else "600"
-                    label.setStyleSheet(f"""
-                        font-size: 12px;
-                        font-weight: {weight};
-                        color: {color};
-                        border: 1px solid #3C3C3C;
-                        border-radius: 6px;
-                        padding: 3px 8px;
-                        background-color: #1E1E1E;
+                    w.setStyleSheet(f"""
+                        font-size:12px;font-weight:{weight};color:{color};
+                        border:1px solid #3C3C3C;border-radius:6px;
+                        padding:3px 8px;background-color:#1E1E1E;
                     """)
-                    return label
+                    return w
 
-                fail_label = styled_info(fail_info, "❗", "#E74C3C")
-                date_label = styled_info(date_str, "📅", "#FFFFFF", bold=True)
-                time_label = styled_info(time_str, "🕒", "#FFFFFF", bold=True)
+                info_lay.addWidget(pill(fail_info, "❗", "#E74C3C"))
+                info_lay.addWidget(pill(date_str, "📅", "#FFFFFF", True))
+                info_lay.addWidget(pill(time_str, "🕒", "#FFFFFF", True))
+                info_lay.addStretch()
 
-
-                info_layout.addWidget(fail_label)
-                info_layout.addWidget(date_label)
-                info_layout.addWidget(time_label)
-                info_layout.addStretch()
-
-                layout.addWidget(title)
-                layout.addWidget(info_container)
+                lay.addWidget(title)
+                lay.addWidget(info_c)
 
                 self.offline_log_layout.addWidget(frame)
         else:
             placeholder = QLabel("Nenhuma falha registrada")
-            placeholder.setStyleSheet("color: gray; font-style: italic; padding: 8px;")
+            placeholder.setStyleSheet(
+                "color: gray; font-style: italic; padding: 8px;")
             self.offline_log_layout.addWidget(placeholder)
 
+        # ❽ actualiza HiveView ---------------------------------------
         if len(updated_hive_data) == len(self.hive_view.cells):
             self.hive_view.update_all(updated_hive_data)
 
-        if offline_count > 0 and not self.blink_timer.isActive():
+        # ❾ blink & beep --------------------------------------------
+        if offline_count and not self.blink_timer.isActive():
             self.blink_timer.start()
         elif offline_count == 0 and self.blink_timer.isActive():
             self.blink_timer.stop()
 
-        if self.isMinimized() and offline_count > 0:
+        if self.isMinimized() and offline_count:
             self.startBeepLoop(offline_count)
         else:
             self.stopBeepLoop()
 
-    
-    # ------------------------------------------------------------------ #
+    # ---------------------------------------------------------------- #
     def toggleBlink(self):
-        """
-        Percorre todos os cards e pede para piscarem se estiverem offline.
-        """
+        """Pisca somente os cards que estão offline."""
         for card in self.server_list.cards.values():
             card.blink()
-
 
 
     def startBeepLoop(self, offline_count):

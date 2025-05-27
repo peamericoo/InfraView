@@ -29,134 +29,118 @@ def get_contrasting_text_color(bg_color):
     return QColor(255, 255, 255) if luminance < 0.5 else QColor(0, 0, 0)
 
 class HexCellWidget(QWidget):
+    # ---------- HELPERS ----------
+    @staticmethod
+    def _to_int(val) -> int:
+        """
+        Converte qualquer entrada (str/float/None/''/'N/A') para int.
+        • valores inválidos → -1  ⇒  tratado como OFF-line/desconhecido.
+        """
+        if val in (None, '', 'N/A'):
+            return -1
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            return -1
+    # --------------------------------
+
     def __init__(self, server_name, latency_ms=0.0, folder_color="#000000", parent=None):
         super().__init__(parent)
-        self.server_name = server_name
-        self.latency_ms = latency_ms
+        self.server_name  = server_name
+        self.latency_ms   = self._to_int(latency_ms)       # ← usa o helper
         self.folder_color = QColor(folder_color)
+
+        #———— UI / fonte ————
         self.setMinimumSize(QSize(80, 80))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self.font_db = QFontDatabase()
-        self.has_open_sans = "Open Sans" in self.font_db.families()
-        if self.has_open_sans:
-            self.font_name = QFont("Open Sans", 8, QFont.Bold)
-            self.font_latency = QFont("Open Sans", 16, QFont.Bold)
-        else:
-            self.font_name = QFont("Arial", 8, QFont.Bold)
-            self.font_latency = QFont("Arial", 16, QFont.Bold)
+        font_db = QFontDatabase()
+        font_ok = "Open Sans" if "Open Sans" in font_db.families() else "Arial"
+        self.font_name    = QFont(font_ok, 8,  QFont.Bold)
+        self.font_latency = QFont(font_ok, 16, QFont.Bold)
 
-        # ANIMACAO: Inicialização de variáveis da cor
-        self.current_color = QColor(0, 128, 0)  # Cor inicial padrão (verde)
-        self.target_color = QColor(0, 128, 0)
+        #———— animação de cor ————
+        self.current_color = self.calculate_color(self.latency_ms)
+        self.target_color  = self.current_color
 
         self.color_anim = QPropertyAnimation(self, b"bgColor")
-        self.color_anim.setDuration(400)  # duração da transição em ms
+        self.color_anim.setDuration(400)
 
-    # ANIMACAO: Propriedade animável bgColor
-    def get_bg_color(self):
-        return self.current_color
-
-    def set_bg_color(self, color):
-        self.current_color = color
-        self.update()
-
+    # propriedade animável -------------------------------------------------
+    def get_bg_color(self): return self.current_color
+    def set_bg_color(self, c): self.current_color = c; self.update()
     bgColor = pyqtProperty(QColor, fget=get_bg_color, fset=set_bg_color)
 
-    # ANIMACAO: Aplicar transição suave no set_data
+    # atualização em tempo-real -------------------------------------------
     def set_data(self, server_name, latency_ms):
         self.server_name = server_name
-        self.latency_ms = latency_ms
-        self.target_color = self.calculate_color(latency_ms)
+        self.latency_ms  = self._to_int(latency_ms)
 
+        self.target_color = self.calculate_color(self.latency_ms)
         self.color_anim.stop()
         self.color_anim.setStartValue(self.current_color)
         self.color_anim.setEndValue(self.target_color)
         self.color_anim.start()
 
-        # ANIMACAO: Lógica de cor com interpolação
+    # paleta de cores ------------------------------------------------------
     def calculate_color(self, latency):
         if latency < 0:
-            return QColor(255, 0, 0)
+            return QColor(255, 0, 0)                                   # offline
         elif latency <= 100:
-            return lerp_color(latency, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
+            return lerp_color(latency, 0, 100,
+                              QColor(144, 238, 144), QColor(0, 128, 0))
         elif latency <= 300:
-            return lerp_color(latency, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
+            return lerp_color(latency, 100, 300,
+                              QColor(0, 128, 0), QColor(255, 255, 0))
         elif latency <= 600:
-            return lerp_color(latency, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
+            return lerp_color(latency, 300, 600,
+                              QColor(255, 255, 0), QColor(255, 165, 0))
         elif latency <= 1000:
-            return lerp_color(latency, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
+            return lerp_color(latency, 600, 1000,
+                              QColor(255, 165, 0), QColor(255, 0, 0))
         else:
             return QColor(255, 0, 0)
 
+    # desenho --------------------------------------------------------------
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-
-        w = self.width()
-        h = self.height()
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
         if w <= 2 or h <= 2:
             return
 
-        base_side = max(1.0, min(w, h) * 0.45)
-        padding_factor = 1.09  # leve expansão das pontas, ajustável
-        side = base_side * padding_factor
+        side = min(w, h) * 0.49                      # tamanho do hexágono
+        cx, cy = w / 2, h / 2
+        poly = QPolygonF([
+            QPointF(cx + side * math.cos(math.radians(60 * i - 30)),
+                    cy + side * math.sin(math.radians(60 * i - 30)))
+            for i in range(6)
+        ])
 
-        cx = w / 2
-        cy = h / 2
-        points = []
-        for i in range(6):
-            angle_deg = 60 * i - 30
-            angle_rad = math.radians(angle_deg)
-            x = cx + side * math.cos(angle_rad)
-            y = cy + side * math.sin(angle_rad)
-            points.append((x, y))
-        poly = QPolygonF([QPointF(px, py) for (px, py) in points])
+        pen_color = QColor("#FFFFFF") if self.folder_color == QColor("#000000") else self.folder_color
+        p.setPen(QPen(pen_color, 4))
+        p.setBrush(QBrush(self.current_color))
+        p.drawPolygon(poly)
 
-        # --- Determina cor interna do hexágono ---
-        if self.latency_ms < 0:
-            bg_color = QColor(255, 0, 0)
-        elif self.latency_ms <= 100:
-            bg_color = lerp_color(self.latency_ms, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
-        elif self.latency_ms <= 300:
-            bg_color = lerp_color(self.latency_ms, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
-        elif self.latency_ms <= 600:
-            bg_color = lerp_color(self.latency_ms, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
-        elif self.latency_ms <= 1000:
-            bg_color = lerp_color(self.latency_ms, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
-        else:
-            bg_color = QColor(255, 0, 0)
-
-        # --- Contorno na cor da pasta ---
-        pen_color = QColor("#FFFFFF") if self.folder_color.name() == "#000000" else self.folder_color
-        painter.setPen(QPen(pen_color, 4))
-
-        # ANIMACAO: Usar cor interpolada
-        painter.setBrush(QBrush(self.current_color))
-        painter.drawPolygon(poly)
-
-        # --- Nome do servidor ---
-        painter.setFont(self.font_name)
-        display_name = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
+        #--- nome ---
+        p.setFont(self.font_name);  p.setPen(QColor("black"))
         rect_name = QRect(0, 0, w, int(h * 0.65))
-        painter.setPen(QColor("black"))
-        painter.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, display_name)
+        name_txt  = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
+        p.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, name_txt)
 
-        # --- Latência ---
-        if self.latency_ms < 0:
-            ms_text_color = QColor("white")
-        elif self.latency_ms < 120:
-            ms_text_color = QColor("white")
-        elif self.latency_ms < 800:
-            ms_text_color = QColor("black")
+       # --- latência / rótulo ---
+        if self.latency_ms < 0:                       # ← off-line
+            txt = "Offline"
         else:
-            ms_text_color = QColor("white")
+            txt = f"{self.latency_ms} ms"
 
-        painter.setFont(self.font_latency)
-        painter.setPen(ms_text_color)
-        ms_text = f"{int(self.latency_ms) if self.latency_ms >= 0 else 0} ms"
+        ms_color = QColor("white") if (
+            self.latency_ms < 120 or self.latency_ms >= 800 or self.latency_ms < 0
+        ) else QColor("black")
+
+        p.setFont(self.font_latency)
+        p.setPen(ms_color)
         rect_ms = QRect(0, int(h * 0.28), w, int(h * 0.55))
-        painter.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, ms_text)
+        p.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, txt)
 class HoneycombLayout(QLayout):
     def __init__(self, parent=None, cell_size=100, spacing=5, columns=None):
         super().__init__(parent)
