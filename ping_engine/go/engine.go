@@ -125,7 +125,6 @@ func (ps *PingServer) StreamStatus(req *pb.StatusRequest, stream pb.PingService_
 	}
 }
 
-
 func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<- *pb.StatusUpdate) {
 	for {
 		select {
@@ -144,8 +143,8 @@ func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<-
 					continue
 				}
 
-				pinger.Count = 3
-				pinger.Timeout = 2 * time.Second
+				pinger.Count = 1
+				pinger.Timeout = 4 * time.Second
 				pinger.SetPrivileged(true)
 
 				err = pinger.Run()
@@ -158,6 +157,8 @@ func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<-
 				if err == nil && stats.PacketsRecv > 0 {
 					latency = float64(stats.AvgRtt.Milliseconds())
 					online = true
+				} else {
+					log.Printf("Falha no ping para %s: %v", ip, err)
 				}
 
 				status := &pb.StatusUpdate{
@@ -169,6 +170,7 @@ func (ps *PingServer) pingLoop(ctx context.Context, ip string, statusChan chan<-
 				}
 				statusChan <- status
 			}
+
 			time.Sleep(2 * time.Second)
 		}
 	}

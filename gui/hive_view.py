@@ -2,6 +2,7 @@ import math
 import json
 import os
 import logging
+from PyQt5.QtCore import QPropertyAnimation, pyqtProperty
 from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem, QScrollArea, QFrame
 from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor
@@ -45,10 +46,48 @@ class HexCellWidget(QWidget):
             self.font_name = QFont("Arial", 8, QFont.Bold)
             self.font_latency = QFont("Arial", 16, QFont.Bold)
 
+        # ANIMACAO: Inicialização de variáveis da cor
+        self.current_color = QColor(0, 128, 0)  # Cor inicial padrão (verde)
+        self.target_color = QColor(0, 128, 0)
+
+        self.color_anim = QPropertyAnimation(self, b"bgColor")
+        self.color_anim.setDuration(400)  # duração da transição em ms
+
+    # ANIMACAO: Propriedade animável bgColor
+    def get_bg_color(self):
+        return self.current_color
+
+    def set_bg_color(self, color):
+        self.current_color = color
+        self.update()
+
+    bgColor = pyqtProperty(QColor, fget=get_bg_color, fset=set_bg_color)
+
+    # ANIMACAO: Aplicar transição suave no set_data
     def set_data(self, server_name, latency_ms):
         self.server_name = server_name
         self.latency_ms = latency_ms
-        self.update()
+        self.target_color = self.calculate_color(latency_ms)
+
+        self.color_anim.stop()
+        self.color_anim.setStartValue(self.current_color)
+        self.color_anim.setEndValue(self.target_color)
+        self.color_anim.start()
+
+        # ANIMACAO: Lógica de cor com interpolação
+    def calculate_color(self, latency):
+        if latency < 0:
+            return QColor(255, 0, 0)
+        elif latency <= 100:
+            return lerp_color(latency, 0, 100, QColor(144, 238, 144), QColor(0, 128, 0))
+        elif latency <= 300:
+            return lerp_color(latency, 100, 300, QColor(0, 128, 0), QColor(255, 255, 0))
+        elif latency <= 600:
+            return lerp_color(latency, 300, 600, QColor(255, 255, 0), QColor(255, 165, 0))
+        elif latency <= 1000:
+            return lerp_color(latency, 600, 1000, QColor(255, 165, 0), QColor(255, 0, 0))
+        else:
+            return QColor(255, 0, 0)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -92,7 +131,8 @@ class HexCellWidget(QWidget):
         pen_color = QColor("#FFFFFF") if self.folder_color.name() == "#000000" else self.folder_color
         painter.setPen(QPen(pen_color, 4))
 
-        painter.setBrush(QBrush(bg_color))
+        # ANIMACAO: Usar cor interpolada
+        painter.setBrush(QBrush(self.current_color))
         painter.drawPolygon(poly)
 
         # --- Nome do servidor ---
