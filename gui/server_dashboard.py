@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QTextEdit,
     QSizePolicy,
-    QPushButton,              # >>> PAUSE-RESUME
+    QPushButton,
 )
 from PyQt5.QtCore import Qt, QTimer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -16,7 +16,7 @@ from datetime import datetime
 import time
 
 from core.status_logic import is_server_online
-from core import pause_manager              # >>> PAUSE-RESUME
+from core import pause_manager
 
 
 class ServerDashboard(QWidget):
@@ -26,15 +26,15 @@ class ServerDashboard(QWidget):
         self.ip = ip
         self.interface = interface
 
-        # >>> PAUSE-RESUME (início)
-        self.paused = pause_manager.is_paused(ip)  # estado inicial vindo do BD
-        # <<< PAUSE-RESUME (fim)
+        self.paused = pause_manager.is_paused(ip)  # estado inicial
 
         self.status = None
 
         self.setWindowTitle(f"InfraView • {server_name} ({ip})")
         self.setMinimumSize(1300, 800)
-        self.setStyleSheet("font-family: 'Segoe UI'; background-color: #1e1e1e; color: #cccccc;")
+        self.setStyleSheet(
+            "font-family: 'Segoe UI'; background-color: #1e1e1e; color: #cccccc;"
+        )
 
         self.init_ui()
 
@@ -96,36 +96,22 @@ class ServerDashboard(QWidget):
         self.ip_label = self.stylized_field(f"IP: {self.ip}")
         self.status_label = QLabel("Status lógico: -")
         self.status_label.setAlignment(Qt.AlignLeft)
-        self.status_label.setStyleSheet("font-size: 11pt; padding: 6px 10px; border-radius: 6px;")
+        self.status_label.setStyleSheet(
+            "font-size: 11pt; padding: 6px 10px; border-radius: 6px;"
+        )
 
-        # >>> PAUSE-RESUME (início)
-        # Botão de alternância ⏸ / ▶
+        # >>> PAUSE-RESUME STYLE (criação do botão)
         self.pause_btn = QPushButton()
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.setFixedHeight(32)
-        self.pause_btn.setStyleSheet("""
-            QPushButton {
-                border: 1px solid #3c3c3c;
-                border-radius: 6px;
-                background-color: #2d2d30;
-                color: #ffffff;
-                font-size: 11pt;
-            }
-            QPushButton:disabled {
-                background-color: #555555;
-                color: #aaaaaa;
-            }
-        """)
         self.pause_btn.clicked.connect(self.on_toggle_pause)
-        self._update_pause_button()  # define texto inicial
-        # <<< PAUSE-RESUME (fim)
+        self._update_pause_button()  # define texto e cor inicial
+        # <<< PAUSE-RESUME STYLE
 
         layout.addWidget(self.name_label)
         layout.addWidget(self.ip_label)
         layout.addWidget(self.status_label)
-        # >>> PAUSE-RESUME
-        layout.addWidget(self.pause_btn)
-        # <<< PAUSE-RESUME
+        layout.addWidget(self.pause_btn)  # botão visível logo abaixo do status
 
         self.online_label = self.stylized_field("Online: -")
         self.method_label = self.stylized_field("Método: -")
@@ -203,7 +189,8 @@ class ServerDashboard(QWidget):
 
     # ------------------------------------------------------------------
     def apply_box_style(self, box):
-        box.setStyleSheet("""
+        box.setStyleSheet(
+            """
             QGroupBox {
                 background-color: #252526;
                 border: 1px solid #3c3c3c;
@@ -219,30 +206,72 @@ class ServerDashboard(QWidget):
                 subcontrol-position: top left;
                 top: -3px;
                 padding: 6px 12px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                            stop:0 #3A3A3A, stop:1 #2D2D30);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3A3A3A, stop:1 #2D2D30
+                );
                 border-radius: 5px;
             }
-        """)
+        """
+        )
 
     # ────────────────────────────────────────────────────────────────────
-    # SLOT – BOTÃO DE PAUSA
+    # BOTÃO DE PAUSA – ESTILO E COMPORTAMENTO
     # ────────────────────────────────────────────────────────────────────
-    # >>> PAUSE-RESUME (início)
+    # >>> PAUSE-RESUME STYLE (funções)
     def _update_pause_button(self):
-        self.pause_btn.setText("▶ Retomar" if self.paused else "⏸ Pausar")
+        """Aplica texto e degradê conforme estado `self.paused`."""
+        if self.paused:
+            text = "Retomar"
+            bg_grad = (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                "stop:0 #6B6B6B, stop:1 #3C3C3C)"
+            )
+            bg_grad_hover = (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                "stop:0 #7d7d7d, stop:1 #4a4a4a)"
+            )
+        else:
+            text = "Pausar"
+            bg_grad = (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                "stop:0 #007ACC, stop:1 #00C8FF)"
+            )
+            bg_grad_hover = (
+                "qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+                "stop:0 #1589e6, stop:1 #33d5ff)"
+            )
+
+        self.pause_btn.setText(text)
+        self.pause_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                background: {bg_grad};
+                color: #ffffff;
+                font-size: 11pt;
+                font-weight: 600;
+            }}
+            QPushButton:hover:!disabled {{
+                background: {bg_grad_hover};
+            }}
+            QPushButton:disabled {{
+                background-color: #4e4e4e;
+                color: #aaaaaa;
+            }}
+        """
+        )
 
     def on_toggle_pause(self):
-        # Desativa botão para evitar cliques duplos
-        self.pause_btn.setDisabled(True)
+        self.pause_btn.setDisabled(True)  # evita duplo-clique
         try:
             pause_manager.toggle_pause(self.ip, not self.paused)
             self.paused = not self.paused
             self._update_pause_button()
         finally:
-            # Reabilita alguns ms depois (interface não trava)
             QTimer.singleShot(300, lambda: self.pause_btn.setDisabled(False))
-    # <<< PAUSE-RESUME (fim)
+    # <<< PAUSE-RESUME STYLE
 
     # ────────────────────────────────────────────────────────────────────
     # ATUALIZAÇÃO DE STATUS
@@ -253,14 +282,9 @@ class ServerDashboard(QWidget):
         if not status:
             return
 
-        self.status = status
         profile = status.get("profile", {})
-
-        # >>> PAUSE-RESUME (início)
-        # Mantém self.paused sincronizado com backend
         self.paused = profile.get("paused", False)
         self._update_pause_button()
-        # <<< PAUSE-RESUME (fim)
 
         status_value = status.get("status", "-")
         self.status_label.setText(f"Status lógico: {status_value}")
@@ -276,17 +300,18 @@ class ServerDashboard(QWidget):
             "online_tcp": "#1abc9c",
             "crítico": "#c0392b",
             "erro_analise": "#bdc3c7",
-            "pausado": "#95a5a6",        # >>> PAUSE-RESUME
+            "pausado": "#95a5a6",
         }
-
         color = status_colors.get(status_value.lower(), "#cccccc")
-        self.status_label.setStyleSheet(f"""
+        self.status_label.setStyleSheet(
+            f"""
             font-size: 11pt;
             padding: 6px 10px;
             border-radius: 6px;
             background-color: {color};
             color: black;
-        """)
+        """
+        )
 
         self.online_label.layout().itemAt(0).widget().setText(
             f"Online: {'Sim' if is_server_online(status) else 'Não'}"
@@ -343,8 +368,7 @@ class ServerDashboard(QWidget):
         lines = []
         if alerts:
             lines.append("ALERTAS ATIVOS:")
-            for alert in alerts:
-                lines.append(f"- {alert}")
+            lines.extend(f"- {a}" for a in alerts)
             lines.append("")
 
         if failures:
@@ -354,4 +378,6 @@ class ServerDashboard(QWidget):
                 msg = fail.get("mensagem", "(erro desconhecido)")
                 lines.append(f"- [{ts[-8:]}] {msg}")
 
-        self.alerts_text.setPlainText("\n".join(lines) if lines else "Nenhum alerta ou falha recente.")
+        self.alerts_text.setPlainText(
+            "\n".join(lines) if lines else "Nenhum alerta ou falha recente."
+        )

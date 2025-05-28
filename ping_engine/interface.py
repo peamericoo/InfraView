@@ -81,11 +81,22 @@ async def _start_engine():
     for i in range(_WORKER_COUNT):
         _loop.create_task(_worker_loop(), name=f"worker-{i}")
 
-    # IPs salvos
+    # ------------------------------------------------------------------
+    # IPs salvos no banco — agora respeitando status 'paused'
+    # ------------------------------------------------------------------
     from core.database import get_all_servers
-    ips = [row[1] for row in get_all_servers()]
-    for ip in ips:
+
+    ips: list[str] = []
+    for name, ip, status, *_ in get_all_servers():        # ← capturamos STATUS
         await _orchestrator.add_server(ip)
+
+        # >>> PAUSE-BOOT (início)
+        if status == "paused":
+            # Mantém perfil em memória e envia RPC PauseServer
+            await _orchestrator.pause_server(ip)
+        # <<< PAUSE-BOOT (fim)
+
+        ips.append(ip)
 
     await _orchestrator.stream_status(ips)
 
