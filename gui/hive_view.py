@@ -3,6 +3,7 @@ import json
 import os
 import logging
 from PyQt5.QtCore import QPropertyAnimation, pyqtProperty
+from core.status_logic import get_logical_status
 from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem, QScrollArea, QFrame
 from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
 from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor
@@ -65,6 +66,7 @@ class HexCellWidget(QWidget):
 
         self.color_anim = QPropertyAnimation(self, b"bgColor")
         self.color_anim.setDuration(400)
+        
 
     # propriedade animável -------------------------------------------------
     def get_bg_color(self): return self.current_color
@@ -72,15 +74,21 @@ class HexCellWidget(QWidget):
     bgColor = pyqtProperty(QColor, fget=get_bg_color, fset=set_bg_color)
 
     # atualização em tempo-real -------------------------------------------
-    def set_data(self, server_name, latency_ms):
+    def set_data(self, server_name, latency_ms, logical_status="online"):
         self.server_name = server_name
         self.latency_ms  = self._to_int(latency_ms)
+        self.logical_status = logical_status
 
-        self.target_color = self.calculate_color(self.latency_ms)
-        self.color_anim.stop()
-        self.color_anim.setStartValue(self.current_color)
-        self.color_anim.setEndValue(self.target_color)
-        self.color_anim.start()
+        if self.logical_status != "pausado":
+            self.target_color = self.calculate_color(self.latency_ms)
+            self.color_anim.stop()
+            self.color_anim.setStartValue(self.current_color)
+            self.color_anim.setEndValue(self.target_color)
+            self.color_anim.start()
+        else:
+            # cor preta temporária (só para contraste interno)
+            self.current_color = QColor("black")
+            self.update()
 
     # paleta de cores ------------------------------------------------------
     def calculate_color(self, latency):
@@ -103,12 +111,13 @@ class HexCellWidget(QWidget):
 
     # desenho --------------------------------------------------------------
     def paintEvent(self, event):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing, True)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
         w, h = self.width(), self.height()
         if w <= 2 or h <= 2:
             return
 
-        side = min(w, h) * 0.49                      # tamanho do hexágono
+        side = min(w, h) * 0.49  # tamanho do hexágono
         cx, cy = w / 2, h / 2
         poly = QPolygonF([
             QPointF(cx + side * math.cos(math.radians(60 * i - 30)),
@@ -116,19 +125,57 @@ class HexCellWidget(QWidget):
             for i in range(6)
         ])
 
+        from PyQt5.QtGui import QPainterPath  # garante que o módulo esteja disponível
+
         pen_color = QColor("#FFFFFF") if self.folder_color == QColor("#000000") else self.folder_color
         p.setPen(QPen(pen_color, 4))
-        p.setBrush(QBrush(self.current_color))
-        p.drawPolygon(poly)
+
+        if getattr(self, "logical_status", "") == "pausado":
+            # Desenha o contorno do hexágono
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(Qt.black, 2))
+            p.drawPolygon(poly)
+
+            # Aplica clipping no formato do hexágono
+            path = QPainterPath()
+            path.addPolygon(poly)
+            p.setClipPath(path)
+
+            # Desenha as faixas zebras
+            stripe_height = 4
+            spacing = 6
+            rect = poly.boundingRect()
+            y = int(rect.top())
+            bottom = int(rect.bottom())
+            left = int(rect.left())
+            width = int(rect.width())
+
+            while y < bottom:
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor("yellow"))
+                p.drawRect(left, y, width, stripe_height)
+                y += stripe_height + spacing
+
+            p.setClipping(False)
+            p.setPen(QPen(Qt.black, 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawPolygon(poly)
+
+        else:
+            p.setBrush(QBrush(self.current_color))
+            p.drawPolygon(poly)
 
         #--- nome ---
-        p.setFont(self.font_name);  p.setPen(QColor("black"))
+        p.setFont(self.font_name)
+        p.setPen(QColor("black"))
         rect_name = QRect(0, 0, w, int(h * 0.65))
-        name_txt  = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
+        name_txt = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
         p.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, name_txt)
 
-       # --- latência / rótulo ---
-        if self.latency_ms < 0:                       # ← off-line
+        # --- latência / rótulo ---
+        if getattr(self, "logical_status", "") == "pausado":
+            txt = "Pausado"
+        elif self.latency_ms < 0:
             txt = "Offline"
         else:
             txt = f"{self.latency_ms} ms"
@@ -141,6 +188,7 @@ class HexCellWidget(QWidget):
         p.setPen(ms_color)
         rect_ms = QRect(0, int(h * 0.28), w, int(h * 0.55))
         p.drawText(rect_ms, Qt.AlignCenter | Qt.AlignTop, txt)
+
 class HoneycombLayout(QLayout):
     def __init__(self, parent=None, cell_size=100, spacing=5, columns=None):
         super().__init__(parent)
@@ -245,12 +293,18 @@ class HiveView(QWidget):
                     if widget:
                         widget.deleteLater()
             for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+                status_dict = {"latency": ms} if ms >= 0 else {}
+                logical_status = get_logical_status(ip, status_dict)
                 cell = HexCellWidget(server_name, ms, folder_color)
+                cell.set_data(server_name, ms, logical_status)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
             for i, (server_name, ip, ms, folder, folder_color) in enumerate(new_servers_info):
-                self.cells[i].set_data(server_name, ms)
+                status_dict = {"latency": ms} if ms >= 0 else {}
+                logical_status = get_logical_status(ip, status_dict)
+                self.cells[i].set_data(server_name, ms, logical_status)
+
         self.servers_info = new_servers_info
 
     def mousePressEvent(self, event):

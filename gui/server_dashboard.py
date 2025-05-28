@@ -15,7 +15,7 @@ from matplotlib.figure import Figure
 from datetime import datetime
 import time
 
-from core.status_logic import is_server_online
+from core.status_logic import get_logical_status
 from core import pause_manager
 
 
@@ -286,11 +286,13 @@ class ServerDashboard(QWidget):
         self.paused = profile.get("paused", False)
         self._update_pause_button()
 
-        status_value = status.get("status", "-")
-        self.status_label.setText(f"Status lógico: {status_value}")
+        # ➕ DEFINIÇÃO ANTECIPADA DE logical_status
+        logical_status = get_logical_status(self.ip, status)
+
+        self.status_label.setText(f"Status lógico: {logical_status}")
 
         status_colors = {
-            "estável": "#2ECC71",
+            "estavel": "#2ECC71",
             "instável": "#F39C12",
             "offline": "#E74C3C",
             "flutuante": "#f1c40f",
@@ -302,7 +304,7 @@ class ServerDashboard(QWidget):
             "erro_analise": "#bdc3c7",
             "pausado": "#95a5a6",
         }
-        color = status_colors.get(status_value.lower(), "#cccccc")
+        color = status_colors.get(logical_status.lower(), "#cccccc")
         self.status_label.setStyleSheet(
             f"""
             font-size: 11pt;
@@ -313,8 +315,10 @@ class ServerDashboard(QWidget):
         """
         )
 
+        is_online = logical_status == "online"
+
         self.online_label.layout().itemAt(0).widget().setText(
-            f"Online: {'Sim' if is_server_online(status) else 'Não'}"
+            f"Online: {'Sim' if is_online else 'Não'}"
         )
         self.method_label.layout().itemAt(0).widget().setText(
             f"Método: {profile.get('preferred_method', '-').upper()}"
@@ -344,6 +348,44 @@ class ServerDashboard(QWidget):
             self.next_ping_label.layout().itemAt(0).widget().setText(
                 f"Próximo ping: em {restante}s"
             )
+
+        # ---------- gráfico ------------------------------------------------
+        self.ax.clear()
+        history = profile.get("history", [])[-30:]
+        if history:
+            x = [datetime.fromisoformat(p["timestamp"]) for p in history]
+            y = [p["latency"] for p in history]
+            self.ax.fill_between(x, y, color="#4dd0e1", alpha=0.4)
+            self.ax.plot(x, y, color="#4dd0e1", linewidth=2)
+            self.ax.set_title("Histórico de Latência")
+            self.ax.set_xlabel("Tempo")
+            self.ax.set_ylabel("ms")
+            self.ax.grid(True, color="#333333")
+            self.figure.tight_layout()
+            self.figure.autofmt_xdate()
+        self.canvas.draw()
+
+        # --------- alertas / falhas ---------------------------------------
+        alerts = profile.get("alerts", [])
+        failures = profile.get("failures", [])
+
+        lines = []
+        if alerts:
+            lines.append("ALERTAS ATIVOS:")
+            lines.extend(f"- {a}" for a in alerts)
+            lines.append("")
+
+        if failures:
+            lines.append("FALHAS RECENTES:")
+            for fail in failures[-5:]:
+                ts = fail.get("timestamp", "--")
+                msg = fail.get("mensagem", "(erro desconhecido)")
+                lines.append(f"- [{ts[-8:]}] {msg}")
+
+        self.alerts_text.setPlainText(
+            "\n".join(lines) if lines else "Nenhum alerta ou falha recente."
+        )
+
 
         # ---------- gráfico ------------------------------------------------
         self.ax.clear()

@@ -1,5 +1,5 @@
 CONSULTA_SEFAZ_ATIVA = False 
-from core.status_logic import is_server_online
+from core.status_logic import get_logical_status
 import json
 import os
 from datetime import datetime, timedelta
@@ -469,14 +469,15 @@ class MainWindow(QMainWindow):
         # ❺ percorre servidores conhecidos ---------------------------
         for ip, name in self.servers.items():
             st      = current.get(ip, {})
-            online  = is_server_online(st)
-            latency = int(st.get("latency", 0) or 0)
+            logical_status = get_logical_status(ip, st)
+            is_online = logical_status == "online"
+            latency = int(st.get("latency", 0) or 0) if is_online else -1
 
-            if not online:
+            if logical_status == "offline":
                 self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 entry = (f"[{ts}] {name} ({ip}): "
-                         f"{self.offline_count[ip]} falha(s)")
+                        f"{self.offline_count[ip]} falha(s)")
                 self.failure_history[ip].append(entry)
                 log_lines.append(entry)
                 offline_count += 1
@@ -487,8 +488,8 @@ class MainWindow(QMainWindow):
         db_rows = map(_normalize_server_row, get_all_servers())
         for name, ip, _st, folder, color in db_rows:
             st      = current.get(ip, {})
-            online  = is_server_online(st)
-            latency = -1 if not online else int(st.get("latency", 0) or 0)
+            logical_status = get_logical_status(ip, st)
+            latency = -1 if logical_status != "online" else int(st.get("latency", 0) or 0)
             updated_hive_data.append((name, ip, latency, folder, color))
 
         # ❼ (re)desenha log de falhas offline ------------------------
@@ -774,9 +775,10 @@ class ServerListWidget(QWidget):
 
             # Aplica status se disponível
             status = status_dict.get(ip)
-            online = is_server_online(status)
-            latency = (status or {}).get("latency", 0)
-            self.cards[ip].set_status(online, latency)
+            logical_status = get_logical_status(ip, status)
+            online = logical_status == "online"
+            latency = int(status.get("latency", 0)) if online else -1
+            self.cards[ip].set_status(online, latency, logical_status)
 
         # Reordena visualmente pelo status
         def sort_key(ip):
