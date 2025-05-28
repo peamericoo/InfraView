@@ -7,10 +7,12 @@ As chamadas assíncronas são despachadas para o loop da engine por
 asyncio.run_coroutine_threadsafe() com timeout curto para não travar.
 """
 
+from __future__ import annotations
+
 import socket
 import asyncio
 import concurrent.futures
-from typing import Iterable, Sequence
+from typing import Sequence
 
 _TIMEOUT_SCHEDULE = 2  # segundos para despachar tarefas no loop da engine
 
@@ -35,21 +37,50 @@ def _submit(coro, loop):
 # ──────────────────────────────────────────────────────────────────────────────
 def add_server_live(ip: str):
     from ping_engine.interface import get_orchestrator
+
     orchestrator = get_orchestrator()
     _submit(orchestrator.add_server(ip), orchestrator.loop)
 
 
 def remove_server_live(ip: str):
     from ping_engine.interface import get_orchestrator
+
     orchestrator = get_orchestrator()
     _submit(orchestrator.remove_server(ip), orchestrator.loop)
 
 
 def edit_server_live(old_ip: str, new_ip: str):
     from ping_engine.interface import get_orchestrator
+
     orchestrator = get_orchestrator()
     _submit(orchestrator.remove_server(old_ip), orchestrator.loop)
     _submit(orchestrator.add_server(new_ip), orchestrator.loop)
+
+
+# >>> PAUSE-RESUME (início)
+# ----------------------------------------------------------------------
+#  NOVAS AÇÕES DE PAUSA / RETOMADA AO VIVO
+# ----------------------------------------------------------------------
+def pause_server_live(ip: str):
+    """
+    Pausa o ping em tempo-real.
+    (GUI → core.pause_manager.toggle_pause → aqui)
+    """
+    from ping_engine.interface import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    _submit(orchestrator.pause_server(ip), orchestrator.loop)
+
+
+def resume_server_live(ip: str):
+    """
+    Retoma o ping de um servidor previamente pausado.
+    """
+    from ping_engine.interface import get_orchestrator
+
+    orchestrator = get_orchestrator()
+    _submit(orchestrator.resume_server(ip), orchestrator.loop)
+# <<< PAUSE-RESUME (fim)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

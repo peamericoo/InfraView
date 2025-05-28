@@ -1,14 +1,17 @@
-# ping_engine/orchestrator.py
 """
-Orchestrator completo – versão com watchdog, pipeline assíncrono
-e integração total com scheduler, analytics e database_access.
+PingOrchestrator
+================
+Cérebro assíncrono da engine de ping.
 
-▶ PRINCIPAIS RECURSOS
-• Distribui pings conforme scheduler.distribute_pings().
-• Watchdog reinicia pingLoop travado e gera eventos no banco.
-• process_update() é assíncrono, com fallback TCP (porta-a-porta).
-• Todos os updates são persistidos via database_access (fila).
-• API pública (add/remove/reload/restart) permanece estável.
+▶ Recursos principais
+• Distribui pings via scheduler.distribute_pings().
+• Watchdog reinicia loops travados.
+• Pipeline completo: analytics → fallback TCP → persistência.
+• NOVO: suporte a **Pausar / Retomar** ping por servidor.
+
+Marcas de alteração:
+    # >>> PAUSE-RESUME (início) ......  linha adicionada/modificada
+    # <<< PAUSE-RESUME (fim) .........  linha adicionada/modificada
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ logger = logging.getLogger(__name__)
 # CONSTANTES WATCHDOG
 # ────────────────────────────────────────────────────────────────────
 _WATCHDOG_TICK = 2           # intervalo de verificação (s)
-_WATCHDOG_MIN_TIMEOUT = 15    # timeout mínimo (s) para considerar travado
+_WATCHDOG_MIN_TIMEOUT = 15   # timeout mínimo (s) para considerar travado
 _FALLBACK_PORTS = [22, 80, 443, 3389]
 
 # ────────────────────────────────────────────────────────────────────
@@ -95,6 +98,52 @@ class PingOrchestrator:
         self.profiles.pop(ip, None)
         return ack.success
 
+    # >>> PAUSE-RESUME (início)
+    # ----------------------------------------------------------------------
+    #  NOVOS MÉTODOS para pausar e retomar o ping de um servidor
+    # ----------------------------------------------------------------------
+    async def pause_server(self, ip: str) -> bool:
+        """
+        Suspende temporariamente o ping do IP.
+
+        1. Chama RPC gRPC PauseServer.
+        2. Marca profile['paused']=True e status='pausado'.
+        3. Persiste no banco via database_access.
+        """
+        if self.stub is None:
+            raise RuntimeError("Stub gRPC não inicializado")
+        ack = await self.stub.PauseServer(pingservice_pb2.PauseRequest(ip=ip))
+        if ack.success:
+            profile = self.profiles.get(ip) or self._init_profile(ip)
+            profile["paused"] = True
+            profile["status"] = "pausado"
+            self.profiles[ip] = profile
+            database_access.save_ip_profile(ip, profile)
+        return ack.success
+
+    async def resume_server(self, ip: str) -> bool:
+        """
+        Retoma o ping do IP previamente pausado.
+
+        1. Chama RPC gRPC ResumeServer.
+        2. Remove flag 'paused' e restaura status anterior (ou 'observação').
+        3. Persiste no banco via database_access.
+        """
+        if self.stub is None:
+            raise RuntimeError("Stub gRPC não inicializado")
+        ack = await self.stub.ResumeServer(pingservice_pb2.ResumeRequest(ip=ip))
+        if ack.success:
+            profile = self.profiles.get(ip) or self._init_profile(ip)
+            profile["paused"] = False
+            if profile.get("last_status"):
+                profile["status"] = profile["last_status"]
+            else:
+                profile["status"] = "observação"
+            self.profiles[ip] = profile
+            database_access.save_ip_profile(ip, profile)
+        return ack.success
+    # <<< PAUSE-RESUME (fim)
+
     async def reload_servers(self, ip_list: List[Dict[str, str]]) -> None:
         """Remove e adiciona novamente todos os IPs informados (hot-reload)."""
         for item in ip_list:
@@ -122,7 +171,15 @@ class PingOrchestrator:
             return
 
         while True:
-            ips_to_ping = scheduler.distribute_pings(self.profiles)
+            # >>> PAUSE-RESUME (início)
+            # Descartar IPs pausados antes do agendamento extra de segurança
+            active_profiles = {
+                ip: prof for ip, prof in self.profiles.items()
+                if not prof.get("paused")
+            }
+            ips_to_ping = scheduler.distribute_pings(active_profiles)
+            # <<< PAUSE-RESUME (fim)
+
             if not ips_to_ping:
                 await asyncio.sleep(0.5)
                 continue
@@ -179,6 +236,8 @@ class PingOrchestrator:
             now = time.time()
 
             for ip, profile in list(self.profiles.items()):
+                if profile.get("paused"):      # >>> PAUSE-RESUME
+                    continue                   # ignora pausados
                 last_seen_iso = profile.get("last_seen")
                 if not last_seen_iso:
                     continue
@@ -238,6 +297,7 @@ class PingOrchestrator:
             "failures": [],
             "alerts": [],
             "ultimos_alertas": {},
+            "paused": False,            # >>> PAUSE-RESUME
         }
 
     async def process_update(self, update_data: Dict[str, Dict[str, Any]]):
@@ -245,6 +305,10 @@ class PingOrchestrator:
         for ip, data in update_data.items():
             profile = self.profiles.get(ip) or self._init_profile(ip)
             self.profiles[ip] = profile
+
+            # Se estiver pausado, ignorar (não deveria chegar aqui, mas seguro)
+            if profile.get("paused"):          # >>> PAUSE-RESUME
+                continue
 
             # --- histórico (máx 300 amostras em memória) ----------------
             profile["history"].append(
@@ -343,4 +407,5 @@ class PingOrchestrator:
             "crítico": "Sem resposta ICMP/TCP.",
             "online_tcp": "Responde apenas TCP (ICMP bloqueado).",
             "sem_resposta": "Worker não envia dados — watchdog atento.",
+            "pausado": "Monitoramento pausado pelo usuário.",   # >>> PAUSE-RESUME
         }.get(status, f"Status: {status}")

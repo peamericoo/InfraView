@@ -1,11 +1,23 @@
-from PyQt5.QtWidgets import (QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-                             QGroupBox, QFrame, QTextEdit, QSizePolicy)
+from PyQt5.QtWidgets import (
+    QWidget,
+    QLabel,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGroupBox,
+    QFrame,
+    QTextEdit,
+    QSizePolicy,
+    QPushButton,              # >>> PAUSE-RESUME
+)
 from PyQt5.QtCore import Qt, QTimer
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from datetime import datetime
 import time
+
 from core.status_logic import is_server_online
+from core import pause_manager              # >>> PAUSE-RESUME
+
 
 class ServerDashboard(QWidget):
     def __init__(self, server_name, ip, interface):
@@ -13,6 +25,11 @@ class ServerDashboard(QWidget):
         self.server_name = server_name
         self.ip = ip
         self.interface = interface
+
+        # >>> PAUSE-RESUME (início)
+        self.paused = pause_manager.is_paused(ip)  # estado inicial vindo do BD
+        # <<< PAUSE-RESUME (fim)
+
         self.status = None
 
         self.setWindowTitle(f"InfraView • {server_name} ({ip})")
@@ -25,15 +42,17 @@ class ServerDashboard(QWidget):
         self.timer.timeout.connect(self.update_status)
         self.timer.start(2000)
 
-        # Mantido aqui para garantir, mas agora também aplicado em init_ui()
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
+    # ────────────────────────────────────────────────────────────────────
+    # UI
+    # ────────────────────────────────────────────────────────────────────
     def init_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(20)
 
-        # --- Painel esquerdo ---
+        # --- Painel esquerdo -------------------------------------------
         left_panel = QVBoxLayout()
         left_panel.setSpacing(20)
         left_panel.addWidget(self.build_identity_block())
@@ -44,11 +63,9 @@ class ServerDashboard(QWidget):
         left_widget = QWidget()
         left_widget.setLayout(left_panel)
 
-        # --- Painel direito (gráfico) ---
+        # --- Painel direito (gráfico) -----------------------------------
         right_panel = QVBoxLayout()
-        # Cria o gráfico e mantém referência em self.canvas/self.figure/self.ax
         chart_box = self.build_latency_chart()
-        # Melhora o tamanho do gráfico
         self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         right_panel.addWidget(chart_box)
 
@@ -58,6 +75,7 @@ class ServerDashboard(QWidget):
         layout.addWidget(left_widget, 2)
         layout.addWidget(right_widget, 3)
 
+    # ------------------------------------------------------------------
     def stylized_field(self, label_text):
         container = QFrame()
         container.setStyleSheet("background-color: #2a2a2e; border-radius: 6px;")
@@ -68,6 +86,7 @@ class ServerDashboard(QWidget):
         layout.addWidget(label)
         return container
 
+    # ------------------------------------------------------------------
     def build_identity_block(self):
         box = QGroupBox("Identidade do Servidor")
         self.apply_box_style(box)
@@ -77,21 +96,47 @@ class ServerDashboard(QWidget):
         self.ip_label = self.stylized_field(f"IP: {self.ip}")
         self.status_label = QLabel("Status lógico: -")
         self.status_label.setAlignment(Qt.AlignLeft)
-        # estilo base; cores dinâmicas em update_status()
         self.status_label.setStyleSheet("font-size: 11pt; padding: 6px 10px; border-radius: 6px;")
 
-        self.online_label = self.stylized_field("Online: -")
-        self.method_label = self.stylized_field("Método: -")
+        # >>> PAUSE-RESUME (início)
+        # Botão de alternância ⏸ / ▶
+        self.pause_btn = QPushButton()
+        self.pause_btn.setCursor(Qt.PointingHandCursor)
+        self.pause_btn.setFixedHeight(32)
+        self.pause_btn.setStyleSheet("""
+            QPushButton {
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                background-color: #2d2d30;
+                color: #ffffff;
+                font-size: 11pt;
+            }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #aaaaaa;
+            }
+        """)
+        self.pause_btn.clicked.connect(self.on_toggle_pause)
+        self._update_pause_button()  # define texto inicial
+        # <<< PAUSE-RESUME (fim)
 
         layout.addWidget(self.name_label)
         layout.addWidget(self.ip_label)
         layout.addWidget(self.status_label)
+        # >>> PAUSE-RESUME
+        layout.addWidget(self.pause_btn)
+        # <<< PAUSE-RESUME
+
+        self.online_label = self.stylized_field("Online: -")
+        self.method_label = self.stylized_field("Método: -")
+
         layout.addWidget(self.online_label)
         layout.addWidget(self.method_label)
 
         box.setLayout(layout)
         return box
 
+    # ------------------------------------------------------------------
     def build_stats_block(self):
         box = QGroupBox("Latência e Estatísticas")
         self.apply_box_style(box)
@@ -114,6 +159,7 @@ class ServerDashboard(QWidget):
         box.setLayout(layout)
         return box
 
+    # ------------------------------------------------------------------
     def build_alerts_block(self):
         box = QGroupBox("Alertas e Falhas Recentes")
         self.apply_box_style(box)
@@ -121,7 +167,6 @@ class ServerDashboard(QWidget):
 
         self.alerts_text = QTextEdit()
         self.alerts_text.setReadOnly(True)
-        # estilo com padding para melhor legibilidade
         self.alerts_text.setStyleSheet(
             "background-color: #1e1e1e; color: white; font-size: 10pt; padding: 10px;"
         )
@@ -130,6 +175,7 @@ class ServerDashboard(QWidget):
         box.setLayout(layout)
         return box
 
+    # ------------------------------------------------------------------
     def build_latency_chart(self):
         box = QGroupBox("Gráfico de Latência")
         self.apply_box_style(box)
@@ -143,7 +189,6 @@ class ServerDashboard(QWidget):
         self.ax.yaxis.label.set_color("white")
         self.ax.title.set_color("white")
 
-        # Configurações iniciais do gráfico
         self.ax.set_title("Histórico de Latência")
         self.ax.set_xlabel("Tempo")
         self.ax.set_ylabel("ms")
@@ -156,13 +201,14 @@ class ServerDashboard(QWidget):
         box.setLayout(layout)
         return box
 
+    # ------------------------------------------------------------------
     def apply_box_style(self, box):
         box.setStyleSheet("""
             QGroupBox {
                 background-color: #252526;
                 border: 1px solid #3c3c3c;
                 border-radius: 10px;
-                margin-top: 8px;   /* 🔁 Subido para evitar corte */
+                margin-top: 8px;
                 padding: 10px;
                 color: white;
                 font-size: 10pt;
@@ -171,7 +217,7 @@ class ServerDashboard(QWidget):
             QGroupBox::title {
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                top: -3px;         /* 🔁 Redução leve, sem cortar */
+                top: -3px;
                 padding: 6px 12px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                                             stop:0 #3A3A3A, stop:1 #2D2D30);
@@ -179,6 +225,28 @@ class ServerDashboard(QWidget):
             }
         """)
 
+    # ────────────────────────────────────────────────────────────────────
+    # SLOT – BOTÃO DE PAUSA
+    # ────────────────────────────────────────────────────────────────────
+    # >>> PAUSE-RESUME (início)
+    def _update_pause_button(self):
+        self.pause_btn.setText("▶ Retomar" if self.paused else "⏸ Pausar")
+
+    def on_toggle_pause(self):
+        # Desativa botão para evitar cliques duplos
+        self.pause_btn.setDisabled(True)
+        try:
+            pause_manager.toggle_pause(self.ip, not self.paused)
+            self.paused = not self.paused
+            self._update_pause_button()
+        finally:
+            # Reabilita alguns ms depois (interface não trava)
+            QTimer.singleShot(300, lambda: self.pause_btn.setDisabled(False))
+    # <<< PAUSE-RESUME (fim)
+
+    # ────────────────────────────────────────────────────────────────────
+    # ATUALIZAÇÃO DE STATUS
+    # ────────────────────────────────────────────────────────────────────
     def update_status(self):
         status_dict = self.interface.get_full_snapshot()
         status = status_dict.get(self.ip)
@@ -188,20 +256,27 @@ class ServerDashboard(QWidget):
         self.status = status
         profile = status.get("profile", {})
 
-        # Campo status_label com cor de fundo dinâmica
+        # >>> PAUSE-RESUME (início)
+        # Mantém self.paused sincronizado com backend
+        self.paused = profile.get("paused", False)
+        self._update_pause_button()
+        # <<< PAUSE-RESUME (fim)
+
         status_value = status.get("status", "-")
         self.status_label.setText(f"Status lógico: {status_value}")
+
         status_colors = {
-            "estável": "#2ECC71",          # verde
-            "instável": "#F39C12",         # laranja forte
-            "offline": "#E74C3C",          # vermelho
-            "flutuante": "#f1c40f",        # amarelo
-            "risco crescente": "#d35400",  # laranja escuro
-            "observação": "#3498db",       # azul
-            "firewall": "#9b59b6",         # roxo
-            "online_tcp": "#1abc9c",       # verde água
-            "crítico": "#c0392b",          # vermelho escuro
-            "erro_analise": "#bdc3c7"      # cinza claro
+            "estável": "#2ECC71",
+            "instável": "#F39C12",
+            "offline": "#E74C3C",
+            "flutuante": "#f1c40f",
+            "risco crescente": "#d35400",
+            "observação": "#3498db",
+            "firewall": "#9b59b6",
+            "online_tcp": "#1abc9c",
+            "crítico": "#c0392b",
+            "erro_analise": "#bdc3c7",
+            "pausado": "#95a5a6",        # >>> PAUSE-RESUME
         }
 
         color = status_colors.get(status_value.lower(), "#cccccc")
@@ -213,8 +288,6 @@ class ServerDashboard(QWidget):
             color: black;
         """)
 
-
-        # Atualiza campos de texto
         self.online_label.layout().itemAt(0).widget().setText(
             f"Online: {'Sim' if is_server_online(status) else 'Não'}"
         )
@@ -247,7 +320,7 @@ class ServerDashboard(QWidget):
                 f"Próximo ping: em {restante}s"
             )
 
-        # Atualiza o gráfico
+        # ---------- gráfico ------------------------------------------------
         self.ax.clear()
         history = profile.get("history", [])[-30:]
         if history:
@@ -259,11 +332,11 @@ class ServerDashboard(QWidget):
             self.ax.set_xlabel("Tempo")
             self.ax.set_ylabel("ms")
             self.ax.grid(True, color="#333333")
-            self.figure.tight_layout()  # usa melhor o espaço
-            self.figure.autofmt_xdate()  # evita colar as datas
+            self.figure.tight_layout()
+            self.figure.autofmt_xdate()
         self.canvas.draw()
 
-        # Atualiza alertas e falhas
+        # --------- alertas / falhas ---------------------------------------
         alerts = profile.get("alerts", [])
         failures = profile.get("failures", [])
 
