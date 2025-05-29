@@ -117,7 +117,7 @@ class HexCellWidget(QWidget):
         if w <= 2 or h <= 2:
             return
 
-        side = min(w, h) * 0.49  # tamanho do hexágono
+        side = min(w, h) * 0.49
         cx, cy = w / 2, h / 2
         poly = QPolygonF([
             QPointF(cx + side * math.cos(math.radians(60 * i - 30)),
@@ -125,55 +125,67 @@ class HexCellWidget(QWidget):
             for i in range(6)
         ])
 
-        from PyQt5.QtGui import QPainterPath  # garante que o módulo esteja disponível
+        from PyQt5.QtGui import QPainterPath, QLinearGradient
 
-        pen_color = QColor("#FFFFFF") if self.folder_color == QColor("#000000") else self.folder_color
-        p.setPen(QPen(pen_color, 4))
+        is_paused = getattr(self, "logical_status", "") == "pausado"
 
-        if getattr(self, "logical_status", "") == "pausado":
-            # Desenha o contorno do hexágono
-            p.setBrush(Qt.NoBrush)
-            p.setPen(QPen(Qt.black, 2))
+        # --- fundo ---
+        if is_paused:
+            grad = QLinearGradient(0, 0, 0, h)
+            grad.setColorAt(0.0, QColor("#d3d3d3"))  # cinza claro
+            grad.setColorAt(1.0, QColor("#a9a9a9"))  # cinza escuro
+            p.setBrush(QBrush(grad))
+            p.setPen(Qt.NoPen)
             p.drawPolygon(poly)
-
-            # Aplica clipping no formato do hexágono
-            path = QPainterPath()
-            path.addPolygon(poly)
-            p.setClipPath(path)
-
-            # Desenha as faixas zebras
-            stripe_height = 4
-            spacing = 6
-            rect = poly.boundingRect()
-            y = int(rect.top())
-            bottom = int(rect.bottom())
-            left = int(rect.left())
-            width = int(rect.width())
-
-            while y < bottom:
-                p.setPen(Qt.NoPen)
-                p.setBrush(QColor("yellow"))
-                p.drawRect(left, y, width, stripe_height)
-                y += stripe_height + spacing
-
-            p.setClipping(False)
-            p.setPen(QPen(Qt.black, 2))
-            p.setBrush(Qt.NoBrush)
-            p.drawPolygon(poly)
-
         else:
             p.setBrush(QBrush(self.current_color))
+            pen_color = QColor("#FFFFFF") if self.folder_color == QColor("#000000") else self.folder_color
+            p.setPen(QPen(pen_color, 4))
             p.drawPolygon(poly)
 
-        #--- nome ---
+        # --- contorno zebrado somente se pausado ---
+        if is_paused:
+            border_thickness = 6
+            stripe_spacing = 7
+
+            for i in range(6):
+                start = poly[i]
+                end = poly[(i + 1) % 6]
+
+                # Vetor da aresta
+                dx = end.x() - start.x()
+                dy = end.y() - start.y()
+                length = math.hypot(dx, dy)
+                steps = int(length // stripe_spacing)
+
+                for s in range(steps):
+                    t1 = s / steps
+                    t2 = (s + 0.5) / steps  # metade da faixa
+
+                    # ponto inicial e final da mini-faixa
+                    x1 = start.x() + t1 * dx
+                    y1 = start.y() + t1 * dy
+                    x2 = start.x() + t2 * dx
+                    y2 = start.y() + t2 * dy
+
+                    color = QColor("yellow") if s % 2 == 0 else QColor("black")
+                    p.setPen(QPen(color, border_thickness))
+                    p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+
+
+        # (Removido deliberadamente para que não sobreponha o zebrado)
+        pass
+
+
+        # --- nome do servidor ---
         p.setFont(self.font_name)
         p.setPen(QColor("black"))
         rect_name = QRect(0, 0, w, int(h * 0.65))
         name_txt = self.server_name if len(self.server_name) <= 13 else self.server_name[:13] + "..."
         p.drawText(rect_name, Qt.AlignCenter | Qt.AlignVCenter, name_txt)
 
-        # --- latência / rótulo ---
-        if getattr(self, "logical_status", "") == "pausado":
+        # --- latência ou status ---
+        if is_paused:
             txt = "Pausado"
         elif self.latency_ms < 0:
             txt = "Offline"
@@ -282,7 +294,24 @@ class HiveView(QWidget):
             self.cells[idx].set_data(self.cells[idx].server_name, new_ms)
 
     def update_all(self, new_servers_info):
-        if len(new_servers_info) != len(self.cells):
+        # Separa servidores pausados e ativos
+        ativos = []
+        pausados = []
+
+        for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+            status_dict = {"latency": ms} if ms >= 0 else {}
+            logical_status = get_logical_status(ip, status_dict)
+            entrada = (server_name, ip, ms, folder, folder_color, logical_status)
+
+            if logical_status == "pausado":
+                pausados.append(entrada)
+            else:
+                ativos.append(entrada)
+
+        ordenado = ativos + pausados
+
+        # Reconstrói se necessário
+        if len(ordenado) != len(self.cells):
             for cell in self.cells:
                 cell.setParent(None)
             self.cells = []
@@ -292,20 +321,17 @@ class HiveView(QWidget):
                     widget = item.widget()
                     if widget:
                         widget.deleteLater()
-            for (server_name, ip, ms, folder, folder_color) in new_servers_info:
-                status_dict = {"latency": ms} if ms >= 0 else {}
-                logical_status = get_logical_status(ip, status_dict)
+            for (server_name, ip, ms, folder, folder_color, logical_status) in ordenado:
                 cell = HexCellWidget(server_name, ms, folder_color)
                 cell.set_data(server_name, ms, logical_status)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
-            for i, (server_name, ip, ms, folder, folder_color) in enumerate(new_servers_info):
-                status_dict = {"latency": ms} if ms >= 0 else {}
-                logical_status = get_logical_status(ip, status_dict)
+            for i, (server_name, ip, ms, folder, folder_color, logical_status) in enumerate(ordenado):
                 self.cells[i].set_data(server_name, ms, logical_status)
 
-        self.servers_info = new_servers_info
+        self.servers_info = new_servers_info  # mantém original
+
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -355,7 +381,22 @@ class ScrollableHiveView(QScrollArea):
         self.setWidget(self.hive_view)
 
     def update_all(self, new_servers_info):
-        if len(new_servers_info) != len(self.cells):
+        # Separa ativos e pausados
+        ativos = []
+        pausados = []
+
+        for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+            status_dict = {"latency": ms} if ms >= 0 else {}
+            logical_status = get_logical_status(ip, status_dict)
+            entrada = (server_name, ip, ms, folder, folder_color, logical_status)
+            if logical_status == "pausado":
+                pausados.append(entrada)
+            else:
+                ativos.append(entrada)
+
+        ordenado = ativos + pausados
+
+        if len(ordenado) != len(self.cells):
             for cell in self.cells:
                 cell.setParent(None)
             self.cells = []
@@ -365,14 +406,16 @@ class ScrollableHiveView(QScrollArea):
                     widget = item.widget()
                     if widget:
                         widget.deleteLater()
-            for (server_name, ip, ms, folder, folder_color) in new_servers_info:
+            for (server_name, ip, ms, folder, folder_color, logical_status) in ordenado:
                 cell = HexCellWidget(server_name, ms, folder_color)
+                cell.set_data(server_name, ms, logical_status)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
-            for i, (server_name, ip, ms, folder, folder_color) in enumerate(new_servers_info):
-                self.cells[i].set_data(server_name, ms)
-        self.servers_info = new_servers_info
+            for i, (server_name, ip, ms, folder, folder_color, logical_status) in enumerate(ordenado):
+                self.cells[i].set_data(server_name, ms, logical_status)
+
+        self.servers_info = new_servers_info  # mantém original caso precise
 
 
 if __name__ == "__main__":
