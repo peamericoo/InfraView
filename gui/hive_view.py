@@ -6,8 +6,9 @@ from PyQt5.QtCore import QPropertyAnimation, pyqtProperty
 from core.status_logic import get_logical_status
 from PyQt5.QtWidgets import QWidget, QLayout, QSizePolicy, QLayoutItem, QScrollArea, QFrame
 from PyQt5.QtCore import Qt, QRect, QSize, QPointF, QPoint
-from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor
+from PyQt5.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF, QFontDatabase, QCursor, QColor
 from core.utils import get_data_path
+from core.pause_manager import is_paused
 
 # Definindo nível de log para INFO em produção (pode ser alterado para DEBUG quando necessário)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -66,6 +67,8 @@ class HexCellWidget(QWidget):
 
         self.color_anim = QPropertyAnimation(self, b"bgColor")
         self.color_anim.setDuration(400)
+
+        
         
 
     # propriedade animável -------------------------------------------------
@@ -74,21 +77,40 @@ class HexCellWidget(QWidget):
     bgColor = pyqtProperty(QColor, fget=get_bg_color, fset=set_bg_color)
 
     # atualização em tempo-real -------------------------------------------
-    def set_data(self, server_name, latency_ms, logical_status="online"):
+    def set_data(self, server_name, latency_ms, logical_status="online", folder_color=None):
+        new_latency = self._to_int(latency_ms)
+
+        # Verifica se houve mudança real
+        is_same = (
+            server_name == self.server_name and
+            new_latency == self.latency_ms and
+            logical_status == getattr(self, "logical_status", None) and
+            (folder_color is None or QColor(folder_color) == self.folder_color)
+        )
+
+        if is_same:
+            return  # ← evita redraw desnecessário
+
         self.server_name = server_name
-        self.latency_ms  = self._to_int(latency_ms)
+        self.latency_ms = new_latency
         self.logical_status = logical_status
 
+        if folder_color is not None:
+            self.folder_color = QColor(folder_color)
+
         if self.logical_status != "pausado":
-            self.target_color = self.calculate_color(self.latency_ms)
-            self.color_anim.stop()
-            self.color_anim.setStartValue(self.current_color)
-            self.color_anim.setEndValue(self.target_color)
-            self.color_anim.start()
+            nova_cor = self.calculate_color(self.latency_ms)
+            if nova_cor != self.current_color:
+                self.target_color = nova_cor
+                self.color_anim.stop()
+                self.color_anim.setStartValue(self.current_color)
+                self.color_anim.setEndValue(self.target_color)
+                self.color_anim.start()
         else:
-            # cor preta temporária (só para contraste interno)
-            self.current_color = QColor("black")
-            self.update()
+            if self.current_color != QColor("black"):
+                self.current_color = QColor("black")
+                self.update()
+
 
     # paleta de cores ------------------------------------------------------
     def calculate_color(self, latency):
@@ -132,8 +154,8 @@ class HexCellWidget(QWidget):
         # --- fundo ---
         if is_paused:
             grad = QLinearGradient(0, 0, 0, h)
-            grad.setColorAt(0.0, QColor("#d3d3d3"))  # cinza claro
-            grad.setColorAt(1.0, QColor("#a9a9a9"))  # cinza escuro
+            grad.setColorAt(0.0, QColor("#e0e0e0"))  # cinza alumínio
+            grad.setColorAt(1.0, QColor("#555555"))  # cinza chumbo
             p.setBrush(QBrush(grad))
             p.setPen(Qt.NoPen)
             p.drawPolygon(poly)
@@ -272,6 +294,7 @@ class HiveView(QWidget):
         self.servers_info = servers_info
         self.columns = columns
         self.cells = []
+        self.cells_by_ip = {}
         self.layout = HoneycombLayout(cell_size=128, spacing=5, columns=columns)
         self.setLayout(self.layout)
         self.panning = False
@@ -281,20 +304,29 @@ class HiveView(QWidget):
         self.setMouseTracking(True)
         self.setCursor(Qt.OpenHandCursor)
         self.buildUI()
-
+        
     def buildUI(self):
         for (server_name, ip, ms, folder, folder_color) in self.servers_info:
             cell = HexCellWidget(server_name, ms, folder_color)
             self.cells.append(cell)
+            self.cells_by_ip[ip] = cell  # ← adiciona ao dicionário
             self.layout.addWidget(cell)
 
 
+    def update_latency_by_ip(self, ip, new_ms):
+        if hasattr(self, "cells_by_ip") and ip in self.cells_by_ip:
+            cell = self.cells_by_ip[ip]
+            logical_status = getattr(cell, "logical_status", "online")
+            folder_color = getattr(cell, "folder_color", QColor("#000000")).name()
+            cell.set_data(cell.server_name, new_ms, logical_status, folder_color)
+
     def update_latency(self, idx, new_ms):
         if 0 <= idx < len(self.cells):
-            self.cells[idx].set_data(self.cells[idx].server_name, new_ms)
+            cell = self.cells[idx]
+            self.update_latency_by_ip(cell.server_name, new_ms)
 
     def update_all(self, new_servers_info):
-        # Separa servidores pausados e ativos
+        # Separa servidores ativos e pausados
         ativos = []
         pausados = []
 
@@ -310,28 +342,37 @@ class HiveView(QWidget):
 
         ordenado = ativos + pausados
 
-        # Reconstrói se necessário
+        # Reconstrói toda a grade se a quantidade mudou
         if len(ordenado) != len(self.cells):
             for cell in self.cells:
                 cell.setParent(None)
             self.cells = []
             while self.layout.count():
                 item = self.layout.takeAt(0)
-                if item:
-                    widget = item.widget()
-                    if widget:
-                        widget.deleteLater()
+                if item and item.widget():
+                    item.widget().deleteLater()
             for (server_name, ip, ms, folder, folder_color, logical_status) in ordenado:
                 cell = HexCellWidget(server_name, ms, folder_color)
                 cell.set_data(server_name, ms, logical_status)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
+            # Reusa células existentes: atualiza COR DA PASTA antes de set_data
             for i, (server_name, ip, ms, folder, folder_color, logical_status) in enumerate(ordenado):
+                self.cells[i].folder_color = QColor(folder_color)
                 self.cells[i].set_data(server_name, ms, logical_status)
 
-        self.servers_info = new_servers_info  # mantém original
+        # Mantém o estado para referência futura
+        self.servers_info = new_servers_info
 
+    def clear_cells(self):
+        for cell in self.cells:
+            cell.setParent(None)
+        while self.layout.count():
+            item = self.layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -381,7 +422,7 @@ class ScrollableHiveView(QScrollArea):
         self.setWidget(self.hive_view)
 
     def update_all(self, new_servers_info):
-        # Separa ativos e pausados
+        # Separa servidores ativos e pausados
         ativos = []
         pausados = []
 
@@ -389,6 +430,7 @@ class ScrollableHiveView(QScrollArea):
             status_dict = {"latency": ms} if ms >= 0 else {}
             logical_status = get_logical_status(ip, status_dict)
             entrada = (server_name, ip, ms, folder, folder_color, logical_status)
+
             if logical_status == "pausado":
                 pausados.append(entrada)
             else:
@@ -396,26 +438,28 @@ class ScrollableHiveView(QScrollArea):
 
         ordenado = ativos + pausados
 
+        # Reconstrói toda a grade se a quantidade mudou
         if len(ordenado) != len(self.cells):
             for cell in self.cells:
                 cell.setParent(None)
             self.cells = []
             while self.layout.count():
                 item = self.layout.takeAt(0)
-                if item:
-                    widget = item.widget()
-                    if widget:
-                        widget.deleteLater()
+                if item and item.widget():
+                    item.widget().deleteLater()
             for (server_name, ip, ms, folder, folder_color, logical_status) in ordenado:
                 cell = HexCellWidget(server_name, ms, folder_color)
                 cell.set_data(server_name, ms, logical_status)
                 self.cells.append(cell)
                 self.layout.addWidget(cell)
         else:
+            # Reusa células existentes: atualiza COR DA PASTA antes de set_data
             for i, (server_name, ip, ms, folder, folder_color, logical_status) in enumerate(ordenado):
+                self.cells[i].folder_color = QColor(folder_color)
                 self.cells[i].set_data(server_name, ms, logical_status)
 
-        self.servers_info = new_servers_info  # mantém original caso precise
+        # Mantém o estado para referência futura
+        self.servers_info = new_servers_info
 
 
 if __name__ == "__main__":
