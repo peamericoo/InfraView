@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import re
 import logging
 import hashlib
+import unicodedata
 from core.utils import get_data_path, validate_ip, resolve_and_ping
 from gui.hive_view import HiveView
 import mplcursors
@@ -259,7 +260,8 @@ class MainWindow(QMainWindow):
 
         self.main_content = self.createMainPage()
         self.stack.addWidget(self.main_content)            # página Home
-        self.stack.setCurrentWidget(self.main_content)  
+        self.stack.setCurrentWidget(self.main_content)
+         
 
         # ── inicia monitor da SEFAZ ─────────────────────────────── #
         if CONSULTA_SEFAZ_ATIVA:
@@ -336,11 +338,15 @@ class MainWindow(QMainWindow):
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(10)
 
-        # Servidores monitorados
+         # Servidores monitorados
         group_servers = QGroupBox("Servidores Monitorados")
         group_servers_layout = QVBoxLayout(group_servers)
 
+        # Instancia ServerListWidget e popula uma única vez
         self.server_list = ServerListWidget(self, self.handleCardDoubleClick)
+        for ip, name in self.servers.items():
+            self.server_list.add_card(ip, name)
+
         self.server_scroll = QScrollArea()
         self.server_scroll.setWidgetResizable(True)
         self.server_scroll.setFrameShape(QFrame.NoFrame)
@@ -420,21 +426,18 @@ class MainWindow(QMainWindow):
 
 
 
+    # === Step 4: Refatorar rebuild_hive_view ===
     def rebuild_hive_view(self):
-        if self.group_hive is not None:
-            layout = self.group_hive.layout()
-            if layout is not None and self.hive_view is not None:
-                layout.removeWidget(self.hive_view)
-                self.hive_view.deleteLater()
+        # 1) Recalcula dados dos servidores
+        db_rows = get_all_servers()
+        servers_data = [_normalize_server_row(r) for r in db_rows]
+        # 2) Ordena: pastas em branco por último e depois por nome
+        servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
 
-            db_rows = get_all_servers()
-            servers_data = [ _normalize_server_row(r) for r in db_rows ]
+        # 3) Atualiza somente o widget existente, sem recriação
+        if getattr(self, "hive_view", None):
+            self.hive_view.update_all(servers_data)
 
-            servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
-
-
-            self.hive_view = HiveView(servers_data, columns=4)
-            layout.addWidget(self.hive_view)
 
     # ───────────────────────────────────────────────────────────────── #
     def update_table(self, status_dict: dict[str, dict]):
@@ -710,29 +713,41 @@ class ServerCard(QWidget):
     # ------------------------------------------------------------ #
     def set_status(self, online: bool, latency: int, status_text: str = ""):
         self.online = online
+        # Pontinho
         dot_color = "#2ECC71" if online else "#E74C3C"
-        self.status_dot.setStyleSheet(f"border-radius:6px; background-color:{dot_color};")
-        self.latency_label.setText(f"{latency} ms" if latency > 0 else "N/A")
+        self.status_dot.setStyleSheet(
+            f"border-radius:6px; background-color:{dot_color};"
+        )
+        # Latência
+        self.latency_label.setText(f"{latency} ms" if latency > 0 else "N/A")
 
-        status_text = status_text or ("Desconhecido" if not online else "estável")
-        self.status_label.setText(status_text)
+        # Texto que vai aparecer
+        txt = status_text or ("estável" if online else "offline")
+        self.status_label.setText(txt)
 
+        # Normaliza: tira acentos, põe em minúsculo
+        txt_norm = unicodedata.normalize("NFKD", txt)\
+                              .encode("ASCII", "ignore")\
+                              .decode("ASCII")\
+                              .lower().strip()
+
+        # Mapeamento de cores
         status_colors = {
-            "estável": "#2ECC71",
-            "instável": "#F39C12",
-            "flutuante": "#f1c40f",
+            "estavel":    "#2ECC71",  # verde para estável
+            "instavel":   "#F39C12",  # laranja
+            "flutuante":  "#f1c40f",
             "risco crescente": "#d35400",
-            "offline": "#E74C3C",
-            "observação": "#3498db",
-            "firewall": "#9b59b6",
+            "offline":    "#E74C3C",  # vermelho
+            "observacao": "#3498db",
+            "firewall":   "#9b59b6",
             "online_tcp": "#1abc9c",
-            "crítico": "#c0392b",
+            "critico":    "#c0392b",
             "erro_analise": "#bdc3c7",
+            # você pode adicionar mais variações aqui…
         }
 
-        color = status_colors.get(status_text.lower(), "#CCCCCC")
+        color = status_colors.get(txt_norm, "#CCCCCC")
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-
     # --- piscar: alterna ponto entre vermelho e transparente ---- #
     def blink(self):
         if self.online:
@@ -749,22 +764,29 @@ class ServerCard(QWidget):
 class ServerListWidget(QWidget):
     def __init__(self, parent=None, on_card_double_click=None):
         super().__init__(parent)
-        self.cards: dict[str, ServerCard] = {}
+        self.cards: dict[str, ServerCard] = {}      # mapeia ip → ServerCard
         self.on_card_double_click = on_card_double_click
         self.layout = QVBoxLayout(self)
         self.layout.setSpacing(8)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
-    # ------------------------------------------------------------------ #
+    def add_card(self, ip: str, name: str):
+        """Cria um ServerCard e adiciona ao layout (usado na inicialização)."""
+        card = ServerCard(name, ip)
+        if self.on_card_double_click:
+            card.card_clicked.connect(self.on_card_double_click)
+        self.cards[ip] = card
+        self.layout.addWidget(card)
+
     def update_servers(self, status_dict: dict, known_servers: dict):
+        # 1) Remove cards obsoletos
         obsolete = set(self.cards) - set(known_servers)
         for ip in obsolete:
-            card = self.cards.pop(ip, None)
-            if card:
-                self.layout.removeWidget(card)
-                card.deleteLater()
+            card = self.cards.pop(ip)
+            self.layout.removeWidget(card)
+            card.deleteLater()
 
-        # Garante que todos os conhecidos tenham card
+        # 2) Garante que todos os conhecidos tenham um card
         for ip, name in known_servers.items():
             if ip not in self.cards:
                 card = ServerCard(name, ip)
@@ -773,73 +795,32 @@ class ServerListWidget(QWidget):
                 self.cards[ip] = card
                 self.layout.addWidget(card)
 
-            # Aplica status se disponível
-            status = status_dict.get(ip)
-            logical_status = get_logical_status(ip, status)
-            online = logical_status == "online"
-            latency = int(status.get("latency", 0)) if online else -1
-            self.cards[ip].set_status(online, latency, logical_status)
+        # 3) Atualiza status de cada card existente
+        for ip, card in self.cards.items():
+            st = status_dict.get(ip, {})        
+            logical = get_logical_status(ip, st)
+            # Pega o texto detalhado vindo do motor, ou cai no lógico
+            status_text = st.get("status", logical)
+            online  = (logical == "online")
+            latency = int(st.get("latency", 0)) if online else -1
+            card.set_status(online, latency, status_text)
 
-        # Reordena visualmente pelo status
-        def sort_key(ip):
-            status = status_dict.get(ip, {})
-            return (status.get("online", True), ip)
 
-        sorted_ips = sorted(known_servers, key=sort_key)
+        # 4) Reordena visualmente: online primeiro, depois por IP
+        def sort_key(ip_addr: str):
+            # not online para que online=True fique antes
+            return (not self.cards[ip_addr].online, ip_addr)
 
+        # esvazia layout atual
         for i in reversed(range(self.layout.count())):
-            widget = self.layout.itemAt(i).widget()
-            if widget:
-                self.layout.removeWidget(widget)
+            w = self.layout.itemAt(i).widget()
+            if w:
+                self.layout.removeWidget(w)
 
-        for ip in sorted_ips:
+        # adiciona na nova ordem
+        for ip in sorted(self.cards.keys(), key=sort_key):
             self.layout.addWidget(self.cards[ip])
 
-
-
-        # ---- 2. ATUALIZA EXISTENTES ou CRIA NOVOS -------------------- #
-        def sort_key(ip):
-            status = status_dict.get(ip, {})
-            return (status.get("online", True), ip)
-
-        for ip in sorted(known_servers, key=sort_key):
-            name = known_servers[ip]
-
-            # cria se ainda não existir
-            if ip not in self.cards:
-                # ⛔️ Pula a criação de card se ainda não foi pingado
-                if ip not in status_dict:
-                    continue
-
-                card = ServerCard(name, ip)
-                if self.on_card_double_click:
-                    card.card_clicked.connect(self.on_card_double_click)
-
-                self.layout.addWidget(card)
-                self.cards[ip] = card
-
-            else:
-                card = self.cards[ip]
-
-            # aplica status / latência
-            status = status_dict.get(ip, {})
-            card.set_status(
-                status.get("online", False),
-                status.get("latency", 0),
-                status.get("status", "")
-            )
-            
-            # --- Reordena visualmente os widgets no layout ---
-        for i in reversed(range(self.layout.count())):
-            widget = self.layout.itemAt(i).widget()
-            if widget:
-                self.layout.removeWidget(widget)
-
-        # Ordena pelo status atual
-        sorted_ips = sorted(known_servers, key=sort_key)
-        for ip in sorted_ips:
-            card = self.cards[ip]
-            self.layout.addWidget(card)
 class HiveOverlay(QWidget):
     """
     Contêiner que exibe o HiveView em tela cheia e sobrepõe
