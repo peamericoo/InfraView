@@ -3,6 +3,7 @@ from core.status_logic import get_logical_status
 import json
 import os
 from datetime import datetime, timedelta
+from .offline_log_widget import OfflineLogContainer
 import re
 import logging
 import hashlib
@@ -287,7 +288,6 @@ class MainWindow(QMainWindow):
 
         # ────────────────────────────────────────────────────────── #
 
-
         self.update_window_title()
 
         self.edit_servers_widget = EditServersWidget(self)
@@ -326,49 +326,42 @@ class MainWindow(QMainWindow):
 
 
     def createMainPage(self):
-        """Cria layout principal (esquerda: lista/erros -- direita: card SEFAZ + Hive)."""
         main_content = QWidget()
         main_content_layout = QHBoxLayout(main_content)
-        main_content_layout.setContentsMargins(10, 10, 10, 10)
+        main_content_layout.setContentsMargins(10,10,10,10)
         main_content_layout.setSpacing(10)
 
-        # ───────────────────────── WIDGET ESQUERDO ───────────────────────── #
+        # ──────── WIDGET ESQUERDO ────────────────── #
         left_widget = QWidget()
-        left_vbox = QVBoxLayout(left_widget)
-        left_vbox.setContentsMargins(0, 0, 0, 0)
+        left_vbox    = QVBoxLayout(left_widget)
+        left_vbox.setContentsMargins(0,0,0,0)
         left_vbox.setSpacing(10)
 
-         # Servidores monitorados
+        # • Servidores monitorados
         group_servers = QGroupBox("Servidores Monitorados")
-        group_servers_layout = QVBoxLayout(group_servers)
-
-        # Instancia ServerListWidget e popula uma única vez
+        box_servers   = QVBoxLayout(group_servers)
         self.server_list = ServerListWidget(self, self.handleCardDoubleClick)
         for ip, name in self.servers.items():
             self.server_list.add_card(ip, name)
-
         self.server_scroll = QScrollArea()
         self.server_scroll.setWidgetResizable(True)
         self.server_scroll.setFrameShape(QFrame.NoFrame)
         self.server_scroll.setStyleSheet("background-color: transparent;")
         self.server_scroll.setWidget(self.server_list)
-        group_servers_layout.addWidget(self.server_scroll)
+        box_servers.addWidget(self.server_scroll)
         left_vbox.addWidget(group_servers)
 
-        # Falhas offline
+        # • Registro de Falhas Offline
+        from .offline_log_widget import OfflineLogContainer
         group_falhas = QGroupBox("Registro de Falhas Offline")
-        group_falhas_layout = QVBoxLayout(group_falhas)
-        self.offline_log_area = QScrollArea()
+        box_falhas   = QVBoxLayout(group_falhas)
+        self.offline_log_area   = QScrollArea()
         self.offline_log_area.setWidgetResizable(True)
-        self.offline_log_area.setStyleSheet("background-color: #1E1E1E; border: none;")
+        self.offline_log_area.setStyleSheet("background-color: #1E1E1E; border:none;")
         self.offline_log_area.setMaximumHeight(400)
-        self.offline_log_container = QWidget()
-        self.offline_log_layout = QVBoxLayout(self.offline_log_container)
-        self.offline_log_container.setStyleSheet("background-color: #252526;")
-        self.offline_log_layout.setContentsMargins(10, 10, 10, 10)
-        self.offline_log_layout.setSpacing(10)
-        self.offline_log_area.setWidget(self.offline_log_container)
-        group_falhas_layout.addWidget(self.offline_log_area)
+        self.offline_log_widget = OfflineLogContainer()
+        self.offline_log_area.setWidget(self.offline_log_widget)
+        box_falhas.addWidget(self.offline_log_area)
         left_vbox.addWidget(group_falhas)
 
         main_content_layout.addWidget(left_widget, 1)
@@ -495,72 +488,10 @@ class MainWindow(QMainWindow):
             latency = -1 if logical_status != "online" else int(st.get("latency", 0) or 0)
             updated_hive_data.append((name, ip, latency, folder, color))
 
-        # ❼ (re)desenha log de falhas offline ------------------------
-        for i in reversed(range(self.offline_log_layout.count())):
-            w = self.offline_log_layout.itemAt(i).widget()
-            if w:
-                w.setParent(None)
+        # ❼ repaint incremental usando o widget externo ----------------
+        self.offline_log_widget.redraw(log_lines)
 
-        if log_lines:
-            for entry in log_lines:
-                # ---------------- estilização idêntica ao seu código --------------
-                match = re.search(r"\[(.*?)\]", entry)
-                raw_ts = match.group(1) if match else ""
-                try:
-                    dt = datetime.strptime(raw_ts, "%Y-%m-%d %H:%M:%S")
-                    date_str = dt.strftime("%d/%m/%Y")
-                    time_str = dt.strftime("%H:%M:%S")
-                except ValueError:
-                    date_str, time_str = "Data inválida", ""
-
-                body = entry.replace(f"[{raw_ts}]", "").strip()
-                server_info, _, fail_info = body.partition(":")
-                server_info, fail_info = server_info.strip(), fail_info.strip()
-
-                frame = QFrame()
-                frame.setStyleSheet("""
-                    QFrame {background-color:#2D2D30;border:1px solid #3C3C3C;
-                            border-radius:12px;}
-                """)
-                lay = QVBoxLayout(frame); lay.setContentsMargins(14,12,14,12)
-                lay.setSpacing(8)
-
-                title = QLabel(server_info)
-                title.setStyleSheet("""
-                    font-size:17px;font-weight:bold;background-color:#2C3E50;
-                    color:white;padding:6px 12px;border-radius:6px;
-                """)
-
-                info_c = QWidget(); info_lay = QHBoxLayout(info_c)
-                info_lay.setContentsMargins(0,0,0,0); info_lay.setSpacing(10)
-                info_c.setStyleSheet("background-color:#2D2D30;")
-
-                def pill(txt, icon, color, bold=False):
-                    w = QLabel(f"{icon} {txt}")
-                    weight = "bold" if bold else "600"
-                    w.setStyleSheet(f"""
-                        font-size:12px;font-weight:{weight};color:{color};
-                        border:1px solid #3C3C3C;border-radius:6px;
-                        padding:3px 8px;background-color:#1E1E1E;
-                    """)
-                    return w
-
-                info_lay.addWidget(pill(fail_info, "❗", "#E74C3C"))
-                info_lay.addWidget(pill(date_str, "📅", "#FFFFFF", True))
-                info_lay.addWidget(pill(time_str, "🕒", "#FFFFFF", True))
-                info_lay.addStretch()
-
-                lay.addWidget(title)
-                lay.addWidget(info_c)
-
-                self.offline_log_layout.addWidget(frame)
-        else:
-            placeholder = QLabel("Nenhuma falha registrada")
-            placeholder.setStyleSheet(
-                "color: gray; font-style: italic; padding: 8px;")
-            self.offline_log_layout.addWidget(placeholder)
-
-        # ❽ actualiza HiveView ---------------------------------------
+        # ❽ atualiza HiveView ---------------------------------------
         if len(updated_hive_data) == len(self.hive_view.cells):
             self.hive_view.update_all(updated_hive_data)
 
@@ -808,8 +739,8 @@ class ServerListWidget(QWidget):
 
         # 4) Reordena visualmente: online primeiro, depois por IP
         def sort_key(ip_addr: str):
-            # not online para que online=True fique antes
-            return (not self.cards[ip_addr].online, ip_addr)
+            # offline primeiro (online=False → 0), depois online
+            return (self.cards[ip_addr].online, ip_addr)
 
         # esvazia layout atual
         for i in reversed(range(self.layout.count())):
