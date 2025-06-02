@@ -492,8 +492,7 @@ class MainWindow(QMainWindow):
         self.offline_log_widget.redraw(log_lines)
 
         # ❽ atualiza HiveView ---------------------------------------
-        if len(updated_hive_data) == len(self.hive_view.cells):
-            self.hive_view.update_all(updated_hive_data)
+        self.hive_view.update_all(updated_hive_data)
 
         # ❾ blink & beep --------------------------------------------
         if offline_count and not self.blink_timer.isActive():

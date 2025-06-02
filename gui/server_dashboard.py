@@ -133,14 +133,15 @@ class ServerDashboard(QWidget):
         self.std_label = self.stylized_field("Desvio padrão: -")
         self.stable_label = self.stylized_field("Estável há: - ciclos")
         self.last_seen_label = self.stylized_field("Último ping: -")
-        self.next_ping_label = self.stylized_field("Próximo ping: -")
+        self.ping_success_label = self.stylized_field("Pings OK (últimos 30): -")
 
         layout.addWidget(self.latency_label)
         layout.addWidget(self.avg_label)
         layout.addWidget(self.std_label)
         layout.addWidget(self.stable_label)
+        layout.addSpacing(10)
         layout.addWidget(self.last_seen_label)
-        layout.addWidget(self.next_ping_label)
+        layout.addWidget(self.ping_success_label)
 
         box.setLayout(layout)
         return box
@@ -342,11 +343,16 @@ class ServerDashboard(QWidget):
             f"Último ping: {last_seen[-8:] if last_seen != '-' else '-'}"
         )
 
-        next_ping = profile.get("next_ping_at")
-        if next_ping:
-            restante = round(next_ping - time.time())
-            self.next_ping_label.layout().itemAt(0).widget().setText(
-                f"Próximo ping: em {restante}s"
+        history = profile.get("history", [])[-30:]
+        if history:
+            ok_count = sum(1 for p in history if p.get("online", False))
+            perc_ok = round((ok_count / len(history)) * 100)
+            self.ping_success_label.layout().itemAt(0).widget().setText(
+                f"Pings OK (últimos {len(history)}): {perc_ok}%"
+            )
+        else:
+            self.ping_success_label.layout().itemAt(0).widget().setText(
+                "Pings OK (últimos 30): -"
             )
 
         # ---------- gráfico ------------------------------------------------
