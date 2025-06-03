@@ -55,14 +55,17 @@ def analyze_ping(data: dict) -> str:
     if len(history) < MIN_ANALYSIS_WINDOW:
         return "observação"
 
-    offline_count = sum(1 for _, l in history if l is None)
+ # 1️⃣ Distribui amostras
+    latencies      = [l for _, l in history if l is not None]
+    offline_count  = len(history) - len(latencies)
+
+    # Se NENHUMA latência válida foi registrada → offline
+    if offline_count >= MIN_ANALYSIS_WINDOW and not latencies:
+        return "offline"
+
+    # 2️⃣ Caso exista mistura de respostas e falhas → instável
     if offline_count >= 3:
         return "instável"
-
-    # latências válidas
-    latencies = [l for _, l in history if l is not None]
-    if not latencies:
-        return "offline"
 
     mean, stddev = _running_stats(latencies)
 

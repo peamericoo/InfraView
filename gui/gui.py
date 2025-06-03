@@ -3,7 +3,7 @@ from core.status_logic import get_logical_status
 import json
 import os
 from datetime import datetime, timedelta
-from .offline_log_widget import OfflineLogContainer
+from .offline_log_widget import OfflineLogPanel
 import re
 import logging
 import hashlib
@@ -352,16 +352,10 @@ class MainWindow(QMainWindow):
         left_vbox.addWidget(group_servers)
 
         # • Registro de Falhas Offline
-        from .offline_log_widget import OfflineLogContainer
         group_falhas = QGroupBox("Registro de Falhas Offline")
         box_falhas   = QVBoxLayout(group_falhas)
-        self.offline_log_area   = QScrollArea()
-        self.offline_log_area.setWidgetResizable(True)
-        self.offline_log_area.setStyleSheet("background-color: #1E1E1E; border:none;")
-        self.offline_log_area.setMaximumHeight(400)
-        self.offline_log_widget = OfflineLogContainer()
-        self.offline_log_area.setWidget(self.offline_log_widget)
-        box_falhas.addWidget(self.offline_log_area)
+        self.offline_log_widget = OfflineLogPanel()
+        box_falhas.addWidget(self.offline_log_widget)
         left_vbox.addWidget(group_falhas)
 
         main_content_layout.addWidget(left_widget, 1)
@@ -488,8 +482,8 @@ class MainWindow(QMainWindow):
             latency = -1 if logical_status != "online" else int(st.get("latency", 0) or 0)
             updated_hive_data.append((name, ip, latency, folder, color))
 
-        # ❼ repaint incremental usando o widget externo ----------------
-        self.offline_log_widget.redraw(log_lines)
+        # ❼ adiciona novas falhas ao painel ----------------------------
+        self.offline_log_widget.append_entries(log_lines)
 
         # ❽ atualiza HiveView ---------------------------------------
         self.hive_view.update_all(updated_hive_data)
