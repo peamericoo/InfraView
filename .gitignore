@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# VSCode
+.vscode/
+
+# PyInstaller/Build
+build/
+dist/
+*.spec
+
+# Dados e arquivos temporários
+*.db
+*.sqlite3
+*.bak
+*.tmp
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Arquivos de configuração pessoais
+*.swp
+*.swo
+
+# Arquivos de cache
+.cache/
