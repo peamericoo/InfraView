@@ -2,13 +2,13 @@ from __future__ import annotations
 
 """Collapsible panel grouping failures of a single server."""
 
-from PyQt6.QtWidgets import (
+from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
     QPushButton,
     QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
+from PyQt5.QtCore import Qt
 
 from core.failure_tracker import list_failures
 from .failure_entry import FailureEntry
@@ -20,12 +20,12 @@ class FailureGroup(QFrame):
         super().__init__(parent)
         self.server_name = server_name
         self.ip = ip
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet("background-color:#2D2D30; border:1px solid #3C3C3C; border-radius:8px;")
 
         self._header = QLabel(f"{server_name} ({ip})")
         self._header.setStyleSheet("font-weight:600; padding:4px;")
-        self._header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self._header.setAlignment(Qt.AlignLeft)
         self._header.mousePressEvent = lambda e: self.toggle()
 
         self._btn_export = QPushButton("Exportar histórico")
@@ -38,7 +38,7 @@ class FailureGroup(QFrame):
         box = QVBoxLayout(self)
         box.addWidget(self._header)
         box.addLayout(self._entries_layout)
-        box.addWidget(self._btn_export, alignment=Qt.AlignmentFlag.AlignRight)
+        box.addWidget(self._btn_export, alignment=Qt.AlignRight)
 
         self._expanded = True
         self.refresh()

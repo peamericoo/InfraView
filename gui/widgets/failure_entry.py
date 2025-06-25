@@ -1,46 +1,38 @@
 from __future__ import annotations
 
-"""PDF export utilities for failure history."""
+"""Small widget representing a single failure entry."""
 
-from typing import Iterable, Sequence
-
-from PyQt6.QtGui import QTextDocument
-from PyQt6.QtPrintSupport import QPrinter
-
-from core.failure_tracker import list_servers_with_failures, list_failures
+from PyQt5.QtCore import Qt, QTimer, QDateTime
+from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtWidgets import QLabel, QHBoxLayout, QWidget
 
 
-class FailureEntry:
-    pass
+class FailureEntry(QWidget):
+    """Visual representation of an offline failure."""
 
+    def __init__(self, timestamp: str, reason: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._label = QLabel(self)
+        dt = QDateTime.fromString(timestamp, Qt.ISODate)
+        ts = dt.toString("dd/MM HH:mm:ss") if dt.isValid() else timestamp
+        self._label.setText(f"{ts} – {reason}")
 
-def _build_html(server_name: str, rows: Sequence[tuple]) -> str:
-    html = [f"<h2>{server_name}</h2>", "<table border='1' cellspacing='0' cellpadding='4'>"]
-    html.append("<tr><th>Data/Hora</th><th>Motivo</th><th>Resolvido</th></tr>")
-    for _id, _server, ts, reason, resolved in rows:
-        res_str = "Sim" if resolved else "Não"
-        html.append(f"<tr><td>{ts}</td><td>{reason}</td><td>{res_str}</td></tr>")
-    html.append("</table>")
-    return "".join(html)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.addWidget(self._label)
 
+        self._phase = False
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(500)
+        self._flash_timer.timeout.connect(self._toggle)
+        self._flash_timer.start()
+        QTimer.singleShot(4000, self._flash_timer.stop)
 
-def export_server_history(server_name: str, rows: Sequence[tuple]) -> None:
-    doc = QTextDocument()
-    doc.setHtml(_build_html(server_name, rows))
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName(f"{server_name}_failures.pdf")
-    doc.print(printer)
-
-
-def export_all_history() -> None:
-    doc = QTextDocument()
-    parts = []
-    for ip in list_servers_with_failures():
-        rows = list_failures(ip)
-        parts.append(_build_html(ip, rows))
-    doc.setHtml("<br/>".join(parts))
-    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-    printer.setOutputFileName("all_failures.pdf")
-    doc.print(printer)
+    def _toggle(self):
+        pal = self._label.palette()
+        if self._phase:
+            pal.setColor(QPalette.WindowText, QColor("#ff5555"))
+        else:
+            pal.setColor(QPalette.WindowText, QColor("white"))
+        self._label.setPalette(pal)
+        self._phase = not self._phase

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Window displaying the complete failure history."""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt5.QtWidgets import QWidget, QVBoxLayout
 
 from .widgets.failure_panel import FailurePanel
 

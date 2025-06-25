@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from PyQt6.QtGui import QTextDocument
-from PyQt6.QtPrintSupport import QPrinter
+from PyQt5.QtGui import QTextDocument
+from PyQt5.QtPrintSupport import QPrinter
 
 from core.failure_tracker import list_servers_with_failures, list_failures
 

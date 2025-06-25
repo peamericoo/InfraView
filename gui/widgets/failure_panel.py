@@ -2,8 +2,8 @@ from __future__ import annotations
 
 """Scrollable panel showing grouped offline failures."""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QPushButton
-from PyQt6.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QScrollArea, QPushButton
+from PyQt5.QtCore import Qt
 
 from core.failure_tracker import list_servers_with_failures
 from core.database import get_all_servers
@@ -29,7 +29,7 @@ class FailurePanel(QWidget):
 
         root = QVBoxLayout(self)
         root.addWidget(self._scroll)
-        root.addWidget(self._btn_export_all, alignment=Qt.AlignmentFlag.AlignRight)
+        root.addWidget(self._btn_export_all, alignment=Qt.AlignRight)
 
         self.refresh()
 
