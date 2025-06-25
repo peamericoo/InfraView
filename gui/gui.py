@@ -3,7 +3,7 @@ from core.status_logic import get_logical_status
 import json
 import os
 from datetime import datetime, timedelta
-from .offline_log_widget import OfflineLogPanel
+from gui.widgets.failure_panel import FailurePanel
 import re
 import logging
 import hashlib
@@ -303,8 +303,8 @@ class MainWindow(QMainWindow):
         # • Registro de Falhas Offline
         group_falhas = QGroupBox("Registro de Falhas Offline")
         box_falhas   = QVBoxLayout(group_falhas)
-        self.offline_log_widget = OfflineLogPanel()
-        box_falhas.addWidget(self.offline_log_widget)
+        self.offline_panel = FailurePanel()
+        box_falhas.addWidget(self.offline_panel)
         left_vbox.addWidget(group_falhas)
 
         main_content_layout.addWidget(left_widget, 1)
@@ -398,7 +398,7 @@ class MainWindow(QMainWindow):
         current = self.latest_status             # alias
 
         # ❸ estruturas auxiliares ------------------------------------
-        log_lines: list[str]          = []
+        log_lines: list[str]          = []  # unused, kept for backward compat
         updated_hive_data: list[tuple] = []
         offline_count = 0
 
@@ -413,12 +413,14 @@ class MainWindow(QMainWindow):
             latency = int(st.get("latency", 0) or 0) if is_online else -1
 
             if logical_status == "offline":
-                self.offline_count[ip] = self.offline_count.get(ip, 0) + 1
-                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                entry = (f"[{ts}] {name} ({ip}): "
-                        f"{self.offline_count[ip]} falha(s)")
-                self.failure_history[ip].append(entry)
-                log_lines.append(entry)
+                prev = self.offline_count.get(ip, 0)
+                self.offline_count[ip] = prev + 1
+                if prev == 0:
+                    try:
+                        from core.failure_tracker import record_failure
+                        record_failure(ip, "Sem resposta")
+                    except Exception:
+                        logging.getLogger(__name__).exception("Falha ao registrar evento")
                 offline_count += 1
             else:
                 self.offline_count[ip] = 0
@@ -431,8 +433,9 @@ class MainWindow(QMainWindow):
             latency = -1 if logical_status != "online" else int(st.get("latency", 0) or 0)
             updated_hive_data.append((name, ip, latency, folder, color))
 
-        # ❼ adiciona novas falhas ao painel ----------------------------
-        self.offline_log_widget.append_entries(log_lines)
+        # ❼ atualiza painel de falhas ---------------------------------
+        if offline_count:
+            self.offline_panel.refresh()
 
         # ❽ atualiza HiveView ---------------------------------------
         self.hive_view.update_all(updated_hive_data)

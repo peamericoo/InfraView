@@ -1,7 +1,6 @@
+from __future__ import annotations
 """Helper utilities for GUI components."""
 """Utility helpers used across GUI modules."""
-
-from __future__ import annotations
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPixmap, QPainter, QBrush, QPen

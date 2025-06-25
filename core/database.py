@@ -101,6 +101,19 @@ def _create_tables_if_needed(conn: sqlite3.Connection) -> None:
         );
     """)
 
+    # ---- Falhas Offline -----------------------------------
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS failures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            reason TEXT NOT NULL,
+            resolved BOOLEAN DEFAULT 0
+        );
+        """
+    )
+
     conn.commit()
     cur.close()
 
