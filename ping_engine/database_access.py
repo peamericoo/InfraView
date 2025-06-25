@@ -10,6 +10,7 @@ import json
 import queue
 import threading
 import time
+import logging
 from typing import Callable, Any
 
 from core.database import get_db_connection
@@ -21,6 +22,7 @@ from core.database import get_db_connection
 _WRITE_QUEUE: "queue.Queue[tuple[Callable[..., None], tuple[Any, ...], dict[str, Any]]]" = queue.Queue(maxsize=2000)
 _WRITER_STARTED = threading.Event()
 
+logger = logging.getLogger(__name__)
 
 def _writer_loop() -> None:
     """Thread dedicada: espera conexão estar pronta e consome a fila."""
@@ -33,7 +35,7 @@ def _writer_loop() -> None:
             continue
 
     cur = conn.cursor()
-    print("[DB_WRITER] iniciado e conectado ao banco")
+    logger.info("[DB_WRITER] iniciado e conectado ao banco")
 
     while True:
         func, args, kwargs = _WRITE_QUEUE.get()
@@ -41,7 +43,7 @@ def _writer_loop() -> None:
             func(cur, *args, **kwargs)
             conn.commit()
         except Exception as exc:
-            print(f"[DB_WRITER] erro em {func.__name__}: {exc}")
+            logger.error("[DB_WRITER] erro em %s: %s", func.__name__, exc)
             conn.rollback()
         finally:
             _WRITE_QUEUE.task_done()
@@ -62,7 +64,7 @@ def _enqueue(func: Callable[..., None], *args: Any, **kwargs: Any) -> None:
     try:
         _WRITE_QUEUE.put_nowait((func, args, kwargs))
     except queue.Full:
-        print(f"[WARN] Fila DB cheia – descartando {func.__name__}")
+        logger.warning("Fila DB cheia – descartando %s", func.__name__)
 
 ###############################################################################
 # FUNÇÕES SQL UNITÁRIAS – Recebem CURSOR

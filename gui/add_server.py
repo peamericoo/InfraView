@@ -10,6 +10,8 @@ from core.database import insert_server, insert_folder
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QColorDialog
 from ping_engine.controller import add_server_live  # novo
 
+logger = logging.getLogger(__name__)
+
 def is_valid_ip(ip):
     try:
         ipaddress.ip_address(ip)
@@ -18,7 +20,7 @@ def is_valid_ip(ip):
         return False
 
 def refresh_from_external_change(self):
-    print("[MainWindow] Detecção de nova entrada via add_server_dialog.")
+    logger.info("Detecção de nova entrada via add_server_dialog.")
     self.reload_servers_data()
     # Engine agora é atualizada diretamente no ato da adição, não precisa mais aqui
 

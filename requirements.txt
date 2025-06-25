@@ -4,3 +4,6 @@ mplcursors>=0.5
 numpy>=1.20
 requests>=2.0
 cryptography>=3.4
+grpcio>=1.51
+psutil>=5.9
+pytest>=7.0

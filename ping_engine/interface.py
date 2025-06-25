@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import logging
 from typing import Dict, Tuple, Any
 
 from ping_engine.orchestrator import PingOrchestrator
 from ping_engine import database_access, analytics, scheduler, cache
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GLOBAIS
@@ -109,7 +111,7 @@ async def _handle_status(update_dict: Dict[str, Dict[str, Any]]):
         try:
             _proc_queue.put_nowait((ip, data))
         except asyncio.QueueFull:
-            print(f"[WARN] Fila de processamento cheia – descartando {ip}")
+            logger.warning("Fila de processamento cheia – descartando %s", ip)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WORKERS  (CONSOMEM A FILA)
@@ -135,7 +137,7 @@ async def _worker_loop():
                 _callback(_ping_snapshot.copy())
 
         except Exception as exc:
-            print(f"[ERRO] worker processando {ip}: {exc}")
+            logger.error("worker processando %s: %s", ip, exc)
         finally:
             _proc_queue.task_done()
 
@@ -149,16 +151,19 @@ def _wait_until_ready(timeout=5):
 
 
 def add_server(ip: str):
+    """Solicita ao orchestrator a inclusão de um IP para monitoramento."""
     _wait_until_ready()
     asyncio.run_coroutine_threadsafe(_orchestrator.add_server(ip), _loop)
 
 
 def remove_server(ip: str):
+    """Remove o IP do monitoramento em execução."""
     _wait_until_ready()
     asyncio.run_coroutine_threadsafe(_orchestrator.remove_server(ip), _loop)
 
 
 def get_server_status(ip: str):
+    """Retorna o snapshot de status armazenado em cache para o IP."""
     return {
         "status": cache.get_status(ip),
         "latency": cache.get_latency(ip),
@@ -167,14 +172,17 @@ def get_server_status(ip: str):
 
 
 def list_servers():
+    """Lista todos os IPs cadastrados no banco de dados."""
     from core.database import get_all_servers
     return [row[1] for row in get_all_servers()]
 
 
 def get_orchestrator() -> PingOrchestrator:
+    """Retorna a instância global do orchestrator após garantia de prontidão."""
     _wait_until_ready()
     return _orchestrator
 
 
 def get_full_snapshot():
+    """Copia o snapshot completo de dados de ping acumulados."""
     return _ping_snapshot.copy()

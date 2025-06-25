@@ -20,53 +20,14 @@ from PyQt5.QtWidgets import (
     QGraphicsDropShadowEffect
 )
 from PyQt5.QtMultimedia import QSound
-from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal, QPropertyAnimation, QEasingCurve, QSize
 from PyQt5.QtGui import QIcon, QPixmap, QColor, QFont, QPainter, QBrush, QPen
-from PyQt5.QtCore import QPropertyAnimation, QEasingCurve, QSize, QEasingCurve, QSize, QTimer
-from PyQt5.QtWidgets import QFrame
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from ping_engine import interface
-from core.database import get_db_connection
-from core.database import get_all_servers, insert_server
+from core.database import get_db_connection, get_all_servers, insert_server
 from gui.navigation_bar import NavigationBar
-from ping_engine import interface
 from gui.server_dashboard import ServerDashboard
-
-# === helper de normalização =============================
-# === helper de normalização =============================
-def _normalize_server_row(row):
-    """
-    Converte saída do SELECT servers em tupla padronizada
-    (name, ip, status:int, folder:str, color:str)
-
-    • Garante sempre 5 campos – evita ValueError quando a linha
-      vier incompleta ou vazia.
-    • Preenche valores ausentes / NULL com defaults seguros.
-    """
-    # --- saneamento da entrada ---------------------------------
-    if not row:                                     # None ou tuple()
-        row = ()
-
-    # converte para lista p/ podermos preencher faltantes
-    data = list(row)
-
-    # Preenche até ter 5 posições
-    while len(data) < 5:
-        data.append(None)
-
-    name, ip, status, folder, color = data[:5]
-
-    # Defaults seguros
-    name   = name   or "<sem nome>"
-    ip     = ip     or "<sem ip>"
-    status = status if isinstance(status, int) else 0
-    folder = folder or ""
-    color  = color  or "#000000"
-
-    return name, ip, status, folder, color
-# =========================================================
-
-# =========================================================
+from gui.utils import normalize_server_row, create_circle_pixmap
 
 # Importa a tela de edição de servidores
 from gui.edit_servers import EditServersWidget
@@ -74,22 +35,10 @@ from gui.edit_servers import EditServersWidget
 from gui.loading_overlay import LoadingOverlay
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 ASSETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
 OFFLINE_SOUND_PATH = os.path.join(ASSETS_PATH, "notification-2-269292.wav")
-
-def create_circle_pixmap(color: QColor, diameter=12) -> QPixmap:
-    pixmap = QPixmap(diameter, diameter)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing, True)
-    painter.setBrush(QBrush(color))
-    painter.setPen(QPen(Qt.NoPen))
-    painter.drawEllipse(0, 0, diameter, diameter)
-    painter.end()
-    return pixmap
-
-
 
 class MainWindow(QMainWindow):
     ping_update_signal = pyqtSignal(dict)  # sinal para atualizar a tabela com segurança
@@ -120,7 +69,7 @@ class MainWindow(QMainWindow):
 
         self.current_phrase_index = 0
         self.title_update_counter = 0
-        print("MainWindow: início do __init__")
+        logger.debug("MainWindow: início do __init__")
         self.setWindowTitle("InfraView - Monitor de Servidores")
         self.resize(1460, 930)
 
@@ -142,7 +91,7 @@ class MainWindow(QMainWindow):
 
 
         def gui_callback(update_dict):
-            print("[GUI] Update recebido:", update_dict)  # para depuração
+            logger.debug("[GUI] Update recebido: %s", update_dict)
             self.ping_update_signal.emit(update_dict)
 
         self.offline_count = {ip: 0 for ip in self.servers}
@@ -293,7 +242,7 @@ class MainWindow(QMainWindow):
         self.edit_servers_widget = EditServersWidget(self)
         self.last_db_hash = hashlib.md5(str(get_all_servers()).encode("utf-8")).hexdigest()
         self.stack.addWidget(self.edit_servers_widget)
-        print("MainWindow: __init__ finalizado")
+        logger.debug("MainWindow: __init__ finalizado")
         interface.start_engine(gui_callback)
 
 
@@ -370,7 +319,7 @@ class MainWindow(QMainWindow):
         group_hive_layout = QVBoxLayout(self.group_hive)
 
         db_rows = get_all_servers()
-        servers_data = [ _normalize_server_row(r) for r in db_rows ]
+        servers_data = [normalize_server_row(r) for r in db_rows]
 
         servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
 
@@ -409,7 +358,7 @@ class MainWindow(QMainWindow):
             dashboard.show()
             self.dashboard_windows.append(dashboard)
         except IndexError:
-            print("Erro ao abrir dashboard: índice fora do intervalo.")
+            logger.error("Erro ao abrir dashboard: índice fora do intervalo.")
 
 
 
@@ -417,7 +366,7 @@ class MainWindow(QMainWindow):
     def rebuild_hive_view(self):
         # 1) Recalcula dados dos servidores
         db_rows = get_all_servers()
-        servers_data = [_normalize_server_row(r) for r in db_rows]
+        servers_data = [normalize_server_row(r) for r in db_rows]
         # 2) Ordena: pastas em branco por último e depois por nome
         servers_data.sort(key=lambda x: (x[3] == '', (x[3] or '').lower(), x[0].lower()))
 
@@ -475,7 +424,7 @@ class MainWindow(QMainWindow):
                 self.offline_count[ip] = 0
 
         # ❻ prepara dados para HiveView ------------------------------
-        db_rows = map(_normalize_server_row, get_all_servers())
+        db_rows = map(normalize_server_row, get_all_servers())
         for name, ip, _st, folder, color in db_rows:
             st      = current.get(ip, {})
             logical_status = get_logical_status(ip, st)
@@ -544,7 +493,7 @@ class MainWindow(QMainWindow):
         if os.path.exists(OFFLINE_SOUND_PATH):
             QSound.play(OFFLINE_SOUND_PATH)
         else:
-            print("Arquivo de som não encontrado:", OFFLINE_SOUND_PATH)
+            logger.warning("Arquivo de som não encontrado: %s", OFFLINE_SOUND_PATH)
 
     def showHomePage(self):
         """

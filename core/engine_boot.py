@@ -7,9 +7,11 @@ import atexit
 import sys
 import psutil
 import time
+import logging
 
 ENGINE_PROCESS = None
 ENGINE_PORT = 50051
+logger = logging.getLogger(__name__)
 
 def is_engine_running():
     """
@@ -64,19 +66,19 @@ def launch_engine():
     # 1️⃣  varre porta 50051
     stale_pids = _collect_engine_pids()
     if stale_pids:
-        print(f"[ENGINE_BOOT] Encontradas instâncias órfãs: {stale_pids} – encerrando…")
+        logger.info("Encontradas instâncias órfãs: %s – encerrando…", stale_pids)
         for pid in stale_pids:
             if pid != os.getpid():   # nunca mate o próprio Python
                 _kill_pid(pid)
 
     # 2️⃣  agora deve estar livre
     if _collect_engine_pids():
-        print("[ENGINE_BOOT] Falha: porta 50051 continua ocupada.")
+        logger.error("Falha: porta 50051 continua ocupada.")
         raise RuntimeError("Não foi possível liberar a porta 50051.")
 
     # 3️⃣  inicia engine fresca
     go_dir = os.path.join(os.getcwd(), "ping_engine", "go")
-    print("[ENGINE_BOOT] Iniciando engine.go via subprocess…")
+    logger.info("Iniciando engine.go via subprocess…")
 
     ENGINE_PROCESS = subprocess.Popen(
         ["go", "run", "engine.go"],
@@ -90,17 +92,17 @@ def launch_engine():
     # 4️⃣  espera até a porta responder (máximo 5 s)
     for _ in range(50):
         if _collect_engine_pids():
-            print("[ENGINE_BOOT] Engine iniciada com sucesso.")
+            logger.info("Engine iniciada com sucesso.")
             return
         time.sleep(0.1)
 
-    print("[ENGINE_BOOT] Falha: a engine não iniciou a tempo.")
+    logger.error("Falha: a engine não iniciou a tempo.")
     try:
         out, err = ENGINE_PROCESS.communicate(timeout=5)
         if out:
-            print("[ENGINE OUTPUT]", out)
+            logger.error("ENGINE OUTPUT %s", out)
         if err:
-            print("[ENGINE ERRO]", err)
+            logger.error("ENGINE ERRO %s", err)
     except Exception:
         pass
     raise RuntimeError("Engine.go não pôde ser iniciada.")
@@ -111,13 +113,13 @@ def shutdown_engine():
     """
     global ENGINE_PROCESS
     if ENGINE_PROCESS and ENGINE_PROCESS.poll() is None:
-        print("[ENGINE_BOOT] Encerrando engine.go...")
+        logger.info("Encerrando engine.go…")
         if os.name == 'nt':
             ENGINE_PROCESS.send_signal(signal.CTRL_BREAK_EVENT)
         else:
             ENGINE_PROCESS.terminate()
         ENGINE_PROCESS.wait(timeout=5)
-        print("[ENGINE_BOOT] Engine finalizada.")
+        logger.info("Engine finalizada.")
 
 # Registro de saída segura
 atexit.register(shutdown_engine)
