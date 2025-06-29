@@ -3,7 +3,7 @@ from __future__ import annotations
 """Small widget representing a single failure entry."""
 
 from PyQt5.QtCore import Qt, QTimer, QDateTime
-from PyQt5.QtGui import QColor, QPalette
+from PyQt5.QtGui import QColor, QPalette, QFont
 from PyQt5.QtWidgets import QLabel, QHBoxLayout, QWidget
 
 
@@ -13,6 +13,7 @@ class FailureEntry(QWidget):
     def __init__(self, timestamp: str, reason: str, parent: QWidget | None = None):
         super().__init__(parent)
         self._label = QLabel(self)
+        self._label.setFont(QFont("Segoe UI", 9))
         dt = QDateTime.fromString(timestamp, Qt.ISODate)
         ts = dt.toString("dd/MM HH:mm:ss") if dt.isValid() else timestamp
         self._label.setText(f"{ts} – {reason}")
