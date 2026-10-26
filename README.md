@@ -4,7 +4,7 @@
 
 ## A tela
 
-Janela real do PyQt, com os servidores que já estão no banco do projeto. A colmeia é a vista principal.
+Janela real do PyQt, com os servidores que já estão no banco do projeto. As latências desse print são exemplo, para a lista não abrir em 0 ms. A colmeia é a vista principal.
 
 <p align="center">
   <img src="assets/tela.png" alt="Janela do InfraView com a lista de servidores e a visão em colmeia." width="820">
