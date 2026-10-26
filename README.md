@@ -2,6 +2,14 @@
   <img src="assets/demo.gif" alt="InfraView. O painel lista servidor online com latência e marca outro como offline." width="820">
 </p>
 
+## A tela
+
+Janela real do PyQt, com os servidores que já estão no banco do projeto. A colmeia é a vista principal.
+
+<p align="center">
+  <img src="assets/tela.png" alt="Janela do InfraView com a lista de servidores e a visão em colmeia." width="820">
+</p>
+
 InfraView é o painel de desktop onde eu olho servidor. Ping ICMP, e se o ICMP não responder, uma checagem TCP. Quando alguém cai, toca um aviso. Tem lista, histórico em gráfico e uma vista em colmeia.
 
 Os endereços do gif são exemplo de tela, não um inventário real.
